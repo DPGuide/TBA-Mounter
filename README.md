@@ -13,3 +13,5 @@ then youre #RAM and #VRAM which are best friends are doing perctly extrem super 
 ***cloesely everything +50% faster as what i tested by my GTX1060 and there i brake the Limit´s with this setup***
 
 ***with high end hardware , images can be genrated "INSTANT"***
+
+***youre CPU , and SSD will take a nap , so long HF & GL***
