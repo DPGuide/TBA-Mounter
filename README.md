@@ -6,6 +6,8 @@
 running with my NEXTGEN Algorythm, and from then do youre AI things but load the models from Z:
 then youre #RAM and #VRAM which are best friends are doing perctly extrem super fast Smaltalk***
 
+***yeah those smaltalks are to fast for CPU or SSD to talk with***
+
 ***youre other programs must run as admin , too , to see the Drive Z: or CMD as admin.***
 
 ***im just one guy, no TEAM which done this here***
