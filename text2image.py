@@ -1,0 +1,302 @@
+import tkinter as tk
+from tkinter import filedialog, Scale, messagebox
+import threading
+import torch
+import ctypes
+import sys
+import os
+import time
+import random 
+from PIL import Image as PILImage
+
+# KI Bibliotheken
+from diffusers import (
+    StableDiffusionPipeline, 
+    StableDiffusionImg2ImgPipeline, 
+    AnimateDiffPipeline, 
+    MotionAdapter,
+    LCMScheduler # Das Turbo-Getriebe
+)
+from diffusers.utils import export_to_gif, export_to_video
+from transformers import CLIPTextModel
+
+# --- ADMIN CHECK & NEUSTART ---
+def is_admin():
+    try:
+        return ctypes.windll.shell32.IsUserAnAdmin()
+    except:
+        return False
+
+if not is_admin():
+    print("Fordere Admin-Rechte an...")
+    ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, " ".join(sys.argv), None, 1)
+    sys.exit(0)
+
+# --- HAUPTKLASSE ---
+class ImageGenGUI:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("GTX 1060 - Ultimate Mounter Edition (ADMIN)")
+        self.root.geometry("1000x950") 
+        self.root.configure(bg="#1e1e1e")
+
+        # --- Variablen mit Standardwerten ---
+        self.model_path = tk.StringVar(value="Z:\\Models\\v1-5-pruned-emaonly.safetensors")
+        self.lora_path = tk.StringVar()
+        self.input_image_path = tk.StringVar()
+        self.text_encoder_path = tk.StringVar(value="Z:\\Models\\text_encoder_lokal")
+        self.motion_adapter_path = tk.StringVar(value="Z:\\Models\\motion_adapter_lokal")
+
+        self.prompt = tk.StringVar(value="A highly detailed cinematic photograph of a cat driving a cyberpunk vehicle, neon lights, 4k")
+        self.neg_prompt = tk.StringVar(value="ugly, blurry, low quality, glitch, deformed")
+        
+        self.seed_var = tk.StringVar(value="-1") 
+        
+        self.setup_ui()
+
+    def setup_ui(self):
+        # Header
+        tk.Label(self.root, text="STABLE DIFFUSION - MOUNTER CONTROL", fg="white", bg="#1e1e1e", font=("Arial", 14, "bold")).pack(pady=10)
+
+        # Auswahl-Sektion
+        self.add_file_selector("1. Basis-Modell (.safetensors):", self.model_path, self.browse_model)
+        self.add_file_selector("2. LoRA / LCM-Turbo LoRA:", self.lora_path, self.browse_lora)
+        self.add_file_selector("3. Vorlagen-Bild (Optional für Img2Img):", self.input_image_path, self.browse_input_image)
+        
+        tk.Label(self.root, text="--- Offline Mounter Pfade ---", fg="#888", bg="#1e1e1e", font=("Arial", 8, "italic")).pack(pady=(15,0))
+        self.add_file_selector("A. Text-Encoder Ordner:", self.text_encoder_path, self.browse_text_encoder)
+        self.add_file_selector("B. Motion-Adapter Ordner:", self.motion_adapter_path, self.browse_motion_adapter)
+
+        # Prompts & Seed
+        self.add_text_entry("Prompt (Was soll zu sehen sein?):", self.prompt, 15)
+        self.add_text_entry("Negative Prompt (Was soll NICHT zu sehen sein?):", self.neg_prompt, 5)
+        self.add_text_entry("Seed (-1 für reinen Zufall):", self.seed_var, 5) 
+
+        # Regler Sektion
+        slider_frame = tk.Frame(self.root, bg="#1e1e1e")
+        slider_frame.pack(fill="x", padx=20, pady=20)
+        
+        # Steps
+        tk.Label(slider_frame, text="Schritte:", fg="white", bg="#1e1e1e", font=("Arial", 8, "bold")).grid(row=0, column=0, sticky="w")
+        self.slider_steps = Scale(slider_frame, from_=1, to=50, orient="horizontal", bg="#1e1e1e", fg="white", highlightthickness=0); self.slider_steps.set(20); self.slider_steps.grid(row=1, column=0, padx=5, sticky="we")
+        
+        # Breite
+        tk.Label(slider_frame, text="Breite:", fg="white", bg="#1e1e1e", font=("Arial", 8, "bold")).grid(row=0, column=1, sticky="w")
+        self.slider_width = Scale(slider_frame, from_=256, to=1280, orient="horizontal", resolution=64, bg="#1e1e1e", fg="white", highlightthickness=0); self.slider_width.set(512); self.slider_width.grid(row=1, column=1, padx=5, sticky="we")
+        
+        # Höhe
+        tk.Label(slider_frame, text="Höhe:", fg="white", bg="#1e1e1e", font=("Arial", 8, "bold")).grid(row=0, column=2, sticky="w")
+        self.slider_height = Scale(slider_frame, from_=256, to=768, orient="horizontal", resolution=64, bg="#1e1e1e", fg="white", highlightthickness=0); self.slider_height.set(512); self.slider_height.grid(row=1, column=2, padx=5, sticky="we")
+        
+        # Frames (Video)
+        tk.Label(slider_frame, text="Video-Frames:", fg="white", bg="#1e1e1e", font=("Arial", 8, "bold")).grid(row=0, column=3, sticky="w")
+        self.slider_frames = Scale(slider_frame, from_=4, to=32, orient="horizontal", bg="#1e1e1e", fg="white", highlightthickness=0); self.slider_frames.set(16); self.slider_frames.grid(row=1, column=3, padx=5, sticky="we")
+        
+        # Strength (Img2Img)
+        tk.Label(slider_frame, text="Img2Img Stärke:", fg="white", bg="#1e1e1e", font=("Arial", 8, "bold")).grid(row=0, column=4, sticky="w")
+        self.slider_strength = Scale(slider_frame, from_=0.1, to=1.0, orient="horizontal", resolution=0.05, bg="#1e1e1e", fg="white", highlightthickness=0); self.slider_strength.set(0.75); self.slider_strength.grid(row=1, column=4, padx=5, sticky="we")
+        
+        # Anzahl Bilder/Videos (Batch Count)
+        tk.Label(slider_frame, text="Anzahl:", fg="#2ecc71", bg="#1e1e1e", font=("Arial", 8, "bold")).grid(row=0, column=5, sticky="w")
+        self.slider_batch = Scale(slider_frame, from_=1, to=100, orient="horizontal", bg="#1e1e1e", fg="#2ecc71", highlightthickness=0); self.slider_batch.set(1); self.slider_batch.grid(row=1, column=5, padx=5, sticky="we")
+
+        slider_frame.columnconfigure((0,1,2,3,4,5), weight=1)
+
+        # Buttons
+        btn_frame = tk.Frame(self.root, bg="#1e1e1e")
+        btn_frame.pack(fill="x", padx=20, pady=20)
+
+        self.btn_img = tk.Button(btn_frame, text="BILD GENERIEREN", bg="#2ecc71", fg="white", font=("Arial", 11, "bold"), command=self.start_gen_img)
+        self.btn_img.pack(side="left", expand=True, fill="x", padx=5)
+
+        self.btn_gif = tk.Button(btn_frame, text="GIF GENERIEREN", bg="#e91e63", fg="white", font=("Arial", 11, "bold"), command=lambda: self.start_gen_vid("gif"))
+        self.btn_gif.pack(side="left", expand=True, fill="x", padx=5)
+
+        self.btn_mp4 = tk.Button(btn_frame, text="MP4 GENERIEREN", bg="#3498db", fg="white", font=("Arial", 11, "bold"), command=lambda: self.start_gen_vid("mp4"))
+        self.btn_mp4.pack(side="left", expand=True, fill="x", padx=5)
+
+        # Status
+        self.status_label = tk.Label(self.root, text="Bereit. (Tipp: Steps < 10 aktiviert automatisch Turbo-LCM)", fg="#2ecc71", bg="#1e1e1e", font=("Arial", 10))
+        self.status_label.pack(pady=10)
+
+    # --- HELPER UI ---
+    def add_file_selector(self, txt, var, cmd):
+        tk.Label(self.root, text=txt, fg="white", bg="#1e1e1e", font=("Arial", 9, "bold")).pack(anchor="w", padx=20, pady=(10, 0))
+        f = tk.Frame(self.root, bg="#1e1e1e"); f.pack(fill="x", padx=20)
+        tk.Entry(f, textvariable=var, bg="#2d2d2d", fg="white", insertbackground="white", borderwidth=0).pack(side="left", expand=True, fill="x", ipady=4, padx=(0, 5))
+        tk.Button(f, text="Durchsuchen", command=cmd, bg="#444", fg="white", relief="flat", padx=10).pack(side="left")
+
+    def add_text_entry(self, txt, var, p):
+        tk.Label(self.root, text=txt, fg="white", bg="#1e1e1e", font=("Arial", 9, "bold")).pack(anchor="w", padx=20, pady=(p, 0))
+        tk.Entry(self.root, textvariable=var, bg="#2d2d2d", fg="white", insertbackground="white", borderwidth=0).pack(fill="x", padx=20, ipady=4)
+
+    # --- BROWSE FUNKTIONEN ---
+    def browse_model(self): f = filedialog.askopenfilename(); self.model_path.set(f) if f else None
+    def browse_lora(self): f = filedialog.askopenfilename(); self.lora_path.set(f) if f else None
+    def browse_input_image(self): f = filedialog.askopenfilename(); self.input_image_path.set(f) if f else None
+    def browse_text_encoder(self): f = filedialog.askopenfilename(); self.text_encoder_path.set(os.path.dirname(f)) if f else None
+    def browse_motion_adapter(self): f = filedialog.askopenfilename(); self.motion_adapter_path.set(os.path.dirname(f)) if f else None
+
+    # --- LOGIK ---
+    def set_busy(self, is_video=False):
+        for b in [self.btn_img, self.btn_gif, self.btn_mp4]: b.config(state="disabled")
+        t = "Video-Turbo wird berechnet..." if self.slider_steps.get() < 10 and is_video else "Generierung startet..."
+        self.status_label.config(text=t, fg="orange")
+
+    def reset_status(self, msg):
+        for b in [self.btn_img, self.btn_gif, self.btn_mp4]: b.config(state="normal")
+        self.status_label.config(text=msg, fg="#2ecc71")
+
+    def apply_turbo_logic(self, pipe):
+        if self.slider_steps.get() < 10:
+            print("LCM-Turbo erkannt! Schalte Scheduler um...")
+            pipe.scheduler = LCMScheduler.from_config(pipe.scheduler.config)
+            return 1.5 
+        return 7.5 
+
+    # --- GENERIERUNG BILD ---
+    def start_gen_img(self):
+        self.set_busy()
+        threading.Thread(target=self.gen_img_thread, daemon=True).start()
+
+    def gen_img_thread(self):
+        try:
+            start_t = time.time()
+            te_p = self.text_encoder_path.get() or "runwayml/stable-diffusion-v1-5"
+            text_encoder = CLIPTextModel.from_pretrained(te_p, torch_dtype=torch.float16, **({"subfolder":"text_encoder"} if "runwayml" in te_p else {}))
+            
+            p_cls = StableDiffusionImg2ImgPipeline if self.input_image_path.get() else StableDiffusionPipeline
+            pipe = p_cls.from_single_file(self.model_path.get(), text_encoder=text_encoder, torch_dtype=torch.float16)
+            
+            if self.lora_path.get():
+                pipe.load_lora_weights(self.lora_path.get())
+                pipe.fuse_lora(lora_scale=0.8)
+
+            guidance = self.apply_turbo_logic(pipe)
+            pipe.to("cuda")
+            pipe.enable_vae_slicing()
+            batch_count = self.slider_batch.get()
+            
+            try:
+                base_seed = int(self.seed_var.get())
+            except ValueError:
+                base_seed = -1
+
+            out_dir = "Output_Bilder"
+            os.makedirs(out_dir, exist_ok=True) # Erstellt den Ordner, falls er nicht existiert                
+
+            for i in range(batch_count):
+                current_seed = base_seed + i if base_seed != -1 else random.randint(0, 2147483647)
+                device = "cuda" if torch.cuda.is_available() else "cpu"
+                generator = torch.Generator(device=device).manual_seed(current_seed)
+
+                self.status_label.config(text=f"Generiere Bild {i+1} von {batch_count} (Seed: {current_seed})...", fg="orange")
+                
+                args = {"prompt": self.prompt.get(), "negative_prompt": self.neg_prompt.get(), 
+                        "num_inference_steps": self.slider_steps.get(), "guidance_scale": guidance,
+                        "generator": generator} 
+                
+                if self.input_image_path.get():
+                    init_img = PILImage.open(self.input_image_path.get()).convert("RGB").resize((self.slider_width.get(), self.slider_height.get()))
+                    args.update({"image": init_img, "strength": self.slider_strength.get()})
+                else:
+                    args.update({"width": self.slider_width.get(), "height": self.slider_height.get()})
+
+                output = pipe(**args).images[0]
+                # Dateinamen und Pfad zusammensetzen
+                fname = f"out_img_{int(time.time())}_seed{current_seed}.png"
+                filepath = os.path.join(out_dir, fname) 
+                
+                output.save(filepath) # Speichert jetzt in den Ordner!
+                
+                fname = f"out_img_{int(time.time())}_seed{current_seed}.png"
+                output.save(fname)
+
+            self.reset_status(f"Fertig! {batch_count} Bild(er) generiert in {time.time()-start_t:.1f}s.")
+        except Exception as e:
+            print(f"Fehler: {e}")
+            self.reset_status("Fehler aufgetreten!")
+
+    # --- GENERIERUNG VIDEO ---
+    def start_gen_vid(self, fmt):
+        self.set_busy(True)
+        threading.Thread(target=self.gen_vid_thread, args=(fmt,), daemon=True).start()
+
+    def gen_vid_thread(self, fmt):
+        try:
+            start_t = time.time()
+            ma_p = self.motion_adapter_path.get() or "guoyww/animatediff-motion-adapter-v1-5-2"
+            te_p = self.text_encoder_path.get() or "runwayml/stable-diffusion-v1-5"
+            
+            self.status_label.config(text="Lade KI-Modelle in den Speicher...", fg="orange")
+            adapter = MotionAdapter.from_pretrained(ma_p, torch_dtype=torch.float16)
+            text_encoder = CLIPTextModel.from_pretrained(te_p, torch_dtype=torch.float16, **({"subfolder":"text_encoder"} if "runwayml" in te_p else {}))
+            
+            # 1. DER TRICK: Wir laden erst die normale Bild-Pipeline. 
+            # Das umgeht den Meta-Tensor-Bug beim Laden aus einer .safetensors Datei!
+            sd_pipe = StableDiffusionPipeline.from_single_file(
+                self.model_path.get(), 
+                text_encoder=text_encoder, 
+                torch_dtype=torch.float16
+            )
+            
+            # 2. Wir bauen die Video-Pipeline manuell aus den funktionierenden Teilen zusammen
+            pipe = AnimateDiffPipeline(
+                vae=sd_pipe.vae,
+                text_encoder=sd_pipe.text_encoder,
+                tokenizer=sd_pipe.tokenizer,
+                unet=sd_pipe.unet,
+                scheduler=sd_pipe.scheduler,
+                motion_adapter=adapter
+            )
+            
+            if self.lora_path.get():
+                pipe.load_lora_weights(self.lora_path.get())
+                pipe.fuse_lora(lora_scale=0.8)
+
+            guidance = self.apply_turbo_logic(pipe)
+            
+            # Da der Bug umgangen ist, greifen jetzt auch die VRAM-Schoner für deine 6GB GPU perfekt:
+            pipe.enable_model_cpu_offload() 
+            pipe.enable_vae_slicing()
+
+            batch_count = self.slider_batch.get()
+            
+            try:
+                base_seed = int(self.seed_var.get())
+            except ValueError:
+                base_seed = -1 
+            # NEU: Ausgabe-Ordner für Videos erstellen
+            out_dir = "Output_Videos"
+            os.makedirs(out_dir, exist_ok=True)
+            # --- NEU: Die Video-Schleife ---
+            for i in range(batch_count):
+                current_seed = base_seed + i if base_seed != -1 else random.randint(0, 2147483647)
+                device = "cuda" if torch.cuda.is_available() else "cpu"
+                generator = torch.Generator(device=device).manual_seed(current_seed)
+
+                self.status_label.config(text=f"Generiere Video {i+1} von {batch_count} (Seed: {current_seed})...", fg="orange")
+
+                output = pipe(prompt=self.prompt.get(), negative_prompt=self.neg_prompt.get(), 
+                              num_frames=self.slider_frames.get(), num_inference_steps=self.slider_steps.get(), 
+                              guidance_scale=guidance, width=self.slider_width.get(), height=self.slider_height.get(),
+                              generator=generator) # Generator übergeben
+                
+                fname = f"out_vid_{int(time.time())}_seed{current_seed}.{fmt}"
+                filepath = os.path.join(out_dir, fname) # Pfad für das Video zusammensetzen
+                
+                if fmt == "mp4":
+                    export_to_video(output.frames[0], filepath, fps=8)
+                else:
+                    export_to_gif(output.frames[0], filepath)
+            
+            self.reset_status(f"Fertig! {batch_count} Video(s) generiert in {time.time()-start_t:.1f}s.")
+        except Exception as e:
+            print(f"Fehler: {e}")
+            self.reset_status("Fehler aufgetreten!")
+
+# --- START ---
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = ImageGenGUI(root)
+    root.mainloop()
