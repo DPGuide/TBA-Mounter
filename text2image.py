@@ -219,6 +219,7 @@ class ImageGenGUI:
             self.reset_status("Fehler aufgetreten!")
 
     # --- GENERIERUNG VIDEO ---
+    # --- GENERIERUNG VIDEO ---
     def start_gen_vid(self, fmt):
         self.set_busy(True)
         threading.Thread(target=self.gen_vid_thread, args=(fmt,), daemon=True).start()
@@ -226,34 +227,35 @@ class ImageGenGUI:
     def gen_vid_thread(self, fmt):
         try:
             start_t = time.time()
-            ma_p = self.motion_adapter_path.get() or "guoyww/animatediff-motion-adapter-v1-5-2"
+            
+            # HIER IST DER MAGISCHE WECHSEL AUF DAS OFFIZIELLE V3 MODELL!
+            ma_p = self.motion_adapter_path.get() or "guoyww/animatediff-motion-adapter-v1-5-3"
             te_p = self.text_encoder_path.get() or "runwayml/stable-diffusion-v1-5"
             
             self.status_label.config(text="Lade KI-Modelle in den Speicher...", fg="orange")
-            
-            # Speicher vor dem Laden aufräumen
-            torch.cuda.empty_cache()
+            torch.cuda.empty_cache() # Einmal durchfegen
             
             adapter = MotionAdapter.from_pretrained(ma_p, torch_dtype=torch.float16)
             text_encoder = CLIPTextModel.from_pretrained(te_p, torch_dtype=torch.float16, **({"subfolder":"text_encoder"} if "runwayml" in te_p else {}))
             
+            # Genau der Lade-Befehl, der bei dir vorher funktioniert hat!
             pipe = AnimateDiffPipeline.from_single_file(
                 self.model_path.get(), 
                 motion_adapter=adapter, 
                 text_encoder=text_encoder, 
                 torch_dtype=torch.float16,
-                safety_checker=None 
+                safety_checker=None
             )
             
-            # VRAM SCHUTZ 2.0 (Optimiert gegen Fragmentierung)
-            pipe.enable_model_cpu_offload() # Ist bei LoRAs oft stabiler als sequential
-            pipe.vae.enable_slicing()       # Das ist der neue, korrekte Befehl!
-
             if self.lora_path.get():
                 pipe.load_lora_weights(self.lora_path.get())
                 pipe.fuse_lora(lora_scale=0.8)
 
             guidance = self.apply_turbo_logic(pipe)
+
+            # Der bewährte VRAM Schutz für 6GB
+            pipe.enable_model_cpu_offload() 
+            pipe.vae.enable_slicing()
 
             out_dir = "Output_Videos"
             os.makedirs(out_dir, exist_ok=True)
@@ -265,9 +267,7 @@ class ImageGenGUI:
                 base_seed = -1 
 
             for i in range(batch_count):
-                # VOR jedem Video den Müll aus dem VRAM werfen!
-                torch.cuda.empty_cache() 
-                
+                torch.cuda.empty_cache()
                 current_seed = base_seed + i if base_seed != -1 else random.randint(0, 2147483647)
                 device = "cuda" if torch.cuda.is_available() else "cpu"
                 generator = torch.Generator(device=device).manual_seed(current_seed)
@@ -293,8 +293,7 @@ class ImageGenGUI:
                 else:
                     export_to_gif(output.frames[0], filepath)
                     
-                # Nach dem Speichern das dicke Ergebnis aus dem RAM löschen
-                del output
+                del output # RAM sauber machen für das nächste Video
             
             self.reset_status(f"Fertig! {batch_count} Video(s) in {time.time()-start_t:.1f}s generiert.")
         except Exception as e:
