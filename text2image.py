@@ -5,6 +5,7 @@ import torch
 import ctypes
 import sys
 import os
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 import time
 import random 
 from PIL import Image as PILImage
@@ -229,71 +230,76 @@ class ImageGenGUI:
             te_p = self.text_encoder_path.get() or "runwayml/stable-diffusion-v1-5"
             
             self.status_label.config(text="Lade KI-Modelle in den Speicher...", fg="orange")
+            
+            # Speicher vor dem Laden aufräumen
+            torch.cuda.empty_cache()
+            
             adapter = MotionAdapter.from_pretrained(ma_p, torch_dtype=torch.float16)
             text_encoder = CLIPTextModel.from_pretrained(te_p, torch_dtype=torch.float16, **({"subfolder":"text_encoder"} if "runwayml" in te_p else {}))
             
-            # 1. DER TRICK: Wir laden erst die normale Bild-Pipeline. 
-            # Das umgeht den Meta-Tensor-Bug beim Laden aus einer .safetensors Datei!
-            sd_pipe = StableDiffusionPipeline.from_single_file(
+            pipe = AnimateDiffPipeline.from_single_file(
                 self.model_path.get(), 
+                motion_adapter=adapter, 
                 text_encoder=text_encoder, 
-                torch_dtype=torch.float16
+                torch_dtype=torch.float16,
+                safety_checker=None 
             )
             
-            # 2. Wir bauen die Video-Pipeline manuell aus den funktionierenden Teilen zusammen
-            pipe = AnimateDiffPipeline(
-                vae=sd_pipe.vae,
-                text_encoder=sd_pipe.text_encoder,
-                tokenizer=sd_pipe.tokenizer,
-                unet=sd_pipe.unet,
-                scheduler=sd_pipe.scheduler,
-                motion_adapter=adapter
-            )
-            
+            # VRAM SCHUTZ 2.0 (Optimiert gegen Fragmentierung)
+            pipe.enable_model_cpu_offload() # Ist bei LoRAs oft stabiler als sequential
+            pipe.vae.enable_slicing()       # Das ist der neue, korrekte Befehl!
+
             if self.lora_path.get():
                 pipe.load_lora_weights(self.lora_path.get())
                 pipe.fuse_lora(lora_scale=0.8)
 
             guidance = self.apply_turbo_logic(pipe)
-            
-            # Da der Bug umgangen ist, greifen jetzt auch die VRAM-Schoner für deine 6GB GPU perfekt:
-            pipe.enable_model_cpu_offload() 
-            pipe.enable_vae_slicing()
 
+            out_dir = "Output_Videos"
+            os.makedirs(out_dir, exist_ok=True)
             batch_count = self.slider_batch.get()
             
             try:
                 base_seed = int(self.seed_var.get())
             except ValueError:
                 base_seed = -1 
-            # NEU: Ausgabe-Ordner für Videos erstellen
-            out_dir = "Output_Videos"
-            os.makedirs(out_dir, exist_ok=True)
-            # --- NEU: Die Video-Schleife ---
+
             for i in range(batch_count):
+                # VOR jedem Video den Müll aus dem VRAM werfen!
+                torch.cuda.empty_cache() 
+                
                 current_seed = base_seed + i if base_seed != -1 else random.randint(0, 2147483647)
                 device = "cuda" if torch.cuda.is_available() else "cpu"
                 generator = torch.Generator(device=device).manual_seed(current_seed)
 
                 self.status_label.config(text=f"Generiere Video {i+1} von {batch_count} (Seed: {current_seed})...", fg="orange")
 
-                output = pipe(prompt=self.prompt.get(), negative_prompt=self.neg_prompt.get(), 
-                              num_frames=self.slider_frames.get(), num_inference_steps=self.slider_steps.get(), 
-                              guidance_scale=guidance, width=self.slider_width.get(), height=self.slider_height.get(),
-                              generator=generator) # Generator übergeben
+                output = pipe(
+                    prompt=self.prompt.get(), 
+                    negative_prompt=self.neg_prompt.get(), 
+                    num_frames=self.slider_frames.get(), 
+                    num_inference_steps=self.slider_steps.get(), 
+                    guidance_scale=guidance, 
+                    width=self.slider_width.get(), 
+                    height=self.slider_height.get(),
+                    generator=generator
+                )
                 
                 fname = f"out_vid_{int(time.time())}_seed{current_seed}.{fmt}"
-                filepath = os.path.join(out_dir, fname) # Pfad für das Video zusammensetzen
+                filepath = os.path.join(out_dir, fname)
                 
                 if fmt == "mp4":
                     export_to_video(output.frames[0], filepath, fps=8)
                 else:
                     export_to_gif(output.frames[0], filepath)
+                    
+                # Nach dem Speichern das dicke Ergebnis aus dem RAM löschen
+                del output
             
-            self.reset_status(f"Fertig! {batch_count} Video(s) generiert in {time.time()-start_t:.1f}s.")
+            self.reset_status(f"Fertig! {batch_count} Video(s) in {time.time()-start_t:.1f}s generiert.")
         except Exception as e:
             print(f"Fehler: {e}")
-            self.reset_status("Fehler aufgetreten!")
+            self.reset_status("Fehler aufgetreten! (Siehe Konsole)")
 
 # --- START ---
 if __name__ == "__main__":
