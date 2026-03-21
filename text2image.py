@@ -5,7 +5,6 @@ import torch
 import ctypes
 import sys
 import os
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 import time
 import random 
 from PIL import Image as PILImage
@@ -174,17 +173,14 @@ class ImageGenGUI:
                 pipe.fuse_lora(lora_scale=0.8)
 
             guidance = self.apply_turbo_logic(pipe)
-            pipe.to("cuda")
-            pipe.enable_vae_slicing()
+            pipe.enable_model_cpu_offload()
+
             batch_count = self.slider_batch.get()
             
             try:
                 base_seed = int(self.seed_var.get())
             except ValueError:
-                base_seed = -1
-
-            out_dir = "Output_Bilder"
-            os.makedirs(out_dir, exist_ok=True) # Erstellt den Ordner, falls er nicht existiert                
+                base_seed = -1 
 
             for i in range(batch_count):
                 current_seed = base_seed + i if base_seed != -1 else random.randint(0, 2147483647)
@@ -204,11 +200,6 @@ class ImageGenGUI:
                     args.update({"width": self.slider_width.get(), "height": self.slider_height.get()})
 
                 output = pipe(**args).images[0]
-                # Dateinamen und Pfad zusammensetzen
-                fname = f"out_img_{int(time.time())}_seed{current_seed}.png"
-                filepath = os.path.join(out_dir, fname) 
-                
-                output.save(filepath) # Speichert jetzt in den Ordner!
                 
                 fname = f"out_img_{int(time.time())}_seed{current_seed}.png"
                 output.save(fname)
@@ -219,7 +210,6 @@ class ImageGenGUI:
             self.reset_status("Fehler aufgetreten!")
 
     # --- GENERIERUNG VIDEO ---
-    # --- GENERIERUNG VIDEO ---
     def start_gen_vid(self, fmt):
         self.set_busy(True)
         threading.Thread(target=self.gen_vid_thread, args=(fmt,), daemon=True).start()
@@ -227,38 +217,23 @@ class ImageGenGUI:
     def gen_vid_thread(self, fmt):
         try:
             start_t = time.time()
-            
-            # HIER IST DER MAGISCHE WECHSEL AUF DAS OFFIZIELLE V3 MODELL!
-            ma_p = self.motion_adapter_path.get() or "guoyww/animatediff-motion-adapter-v1-5-3"
+            ma_p = self.motion_adapter_path.get() or "guoyww/animatediff-motion-adapter-v1-5-2"
             te_p = self.text_encoder_path.get() or "runwayml/stable-diffusion-v1-5"
             
+            # Modelle laden
             self.status_label.config(text="Lade KI-Modelle in den Speicher...", fg="orange")
-            torch.cuda.empty_cache() # Einmal durchfegen
-            
             adapter = MotionAdapter.from_pretrained(ma_p, torch_dtype=torch.float16)
             text_encoder = CLIPTextModel.from_pretrained(te_p, torch_dtype=torch.float16, **({"subfolder":"text_encoder"} if "runwayml" in te_p else {}))
             
-            # Genau der Lade-Befehl, der bei dir vorher funktioniert hat!
-            pipe = AnimateDiffPipeline.from_single_file(
-                self.model_path.get(), 
-                motion_adapter=adapter, 
-                text_encoder=text_encoder, 
-                torch_dtype=torch.float16,
-                safety_checker=None
-            )
+            pipe = AnimateDiffPipeline.from_single_file(self.model_path.get(), motion_adapter=adapter, text_encoder=text_encoder, torch_dtype=torch.float16)
             
             if self.lora_path.get():
                 pipe.load_lora_weights(self.lora_path.get())
                 pipe.fuse_lora(lora_scale=0.8)
 
             guidance = self.apply_turbo_logic(pipe)
+            pipe.enable_sequential_cpu_offload() # Wichtig für die 6GB VRAM!
 
-            # Der bewährte VRAM Schutz für 6GB
-            pipe.enable_model_cpu_offload() 
-            pipe.vae.enable_slicing()
-
-            out_dir = "Output_Videos"
-            os.makedirs(out_dir, exist_ok=True)
             batch_count = self.slider_batch.get()
             
             try:
@@ -266,39 +241,29 @@ class ImageGenGUI:
             except ValueError:
                 base_seed = -1 
 
+            # --- NEU: Die Video-Schleife ---
             for i in range(batch_count):
-                torch.cuda.empty_cache()
                 current_seed = base_seed + i if base_seed != -1 else random.randint(0, 2147483647)
                 device = "cuda" if torch.cuda.is_available() else "cpu"
                 generator = torch.Generator(device=device).manual_seed(current_seed)
 
                 self.status_label.config(text=f"Generiere Video {i+1} von {batch_count} (Seed: {current_seed})...", fg="orange")
 
-                output = pipe(
-                    prompt=self.prompt.get(), 
-                    negative_prompt=self.neg_prompt.get(), 
-                    num_frames=self.slider_frames.get(), 
-                    num_inference_steps=self.slider_steps.get(), 
-                    guidance_scale=guidance, 
-                    width=self.slider_width.get(), 
-                    height=self.slider_height.get(),
-                    generator=generator
-                )
+                output = pipe(prompt=self.prompt.get(), negative_prompt=self.neg_prompt.get(), 
+                              num_frames=self.slider_frames.get(), num_inference_steps=self.slider_steps.get(), 
+                              guidance_scale=guidance, width=self.slider_width.get(), height=self.slider_height.get(),
+                              generator=generator) # Generator übergeben
                 
                 fname = f"out_vid_{int(time.time())}_seed{current_seed}.{fmt}"
-                filepath = os.path.join(out_dir, fname)
-                
                 if fmt == "mp4":
-                    export_to_video(output.frames[0], filepath, fps=8)
+                    export_to_video(output.frames[0], fname, fps=8)
                 else:
-                    export_to_gif(output.frames[0], filepath)
-                    
-                del output # RAM sauber machen für das nächste Video
+                    export_to_gif(output.frames[0], fname)
             
-            self.reset_status(f"Fertig! {batch_count} Video(s) in {time.time()-start_t:.1f}s generiert.")
+            self.reset_status(f"Fertig! {batch_count} Video(s) generiert in {time.time()-start_t:.1f}s.")
         except Exception as e:
             print(f"Fehler: {e}")
-            self.reset_status("Fehler aufgetreten! (Siehe Konsole)")
+            self.reset_status("Fehler aufgetreten!")
 
 # --- START ---
 if __name__ == "__main__":
