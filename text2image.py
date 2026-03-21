@@ -217,7 +217,7 @@ class ImageGenGUI:
     def gen_vid_thread(self, fmt):
         try:
             start_t = time.time()
-            ma_p = self.motion_adapter_path.get() or "guoyww/animatediff-motion-adapter-v1-5-2"
+            ma_p = self.motion_adapter_path.get() or "guoyww/animatediff-motion-adapter-v1-5-3"
             te_p = self.text_encoder_path.get() or "runwayml/stable-diffusion-v1-5"
             
             # Modelle laden
