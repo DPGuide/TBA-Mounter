@@ -266,7 +266,9 @@ class ImageGenGUI:
             self.text_encoder = CLIPTextModel.from_pretrained(te_p, torch_dtype=torch.float16, low_cpu_mem_usage=False, **({"subfolder":"text_encoder"} if "runwayml" in te_p else {}))
 
             # Riesiges Hauptmodell ram-schonend laden
-            self.pipe = AnimateDiffPipeline.from_single_file(self.model_path.get(), motion_adapter=self.adapter, text_encoder=self.text_encoder, torch_dtype=torch.float16)
+            self.pipe = AnimateDiffPipeline.from_single_file(...)
+            # !!! NEU: öfters mal Black Screen bei der GTX 1060 !!!
+            self.pipe.upcast_vae()
             
             if self.lora_path.get():
                 self.pipe.load_lora_weights(self.lora_path.get())
