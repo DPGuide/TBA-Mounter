@@ -9,8 +9,8 @@ os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 import time
 import random 
 from PIL import Image as PILImage
-import torch
 import gc  # Garbage Collector
+
 print("!!! GRAFIKKARTEN-TEST: ", torch.cuda.is_available(), " !!!")
 print("Ist CUDA aktiv?", torch.cuda.is_available())
 
@@ -39,19 +39,6 @@ if not is_admin():
 
 # --- HAUPTKLASSE ---
 class ImageGenGUI:
-    def cleanup(self):
-    # Löscht alte Referenzen, falls vorhanden
-    if hasattr(self, 'pipe'):
-        del self.pipe
-    if hasattr(self, 'text_encoder'):
-        del self.text_encoder
-    if hasattr(self, 'adapter'):
-        del self.adapter
-    
-    # Leert den RAM und VRAM restlos
-    gc.collect()
-    torch.cuda.empty_cache()
-    torch.cuda.ipc_collect()
     def __init__(self, root):
         self.root = root
         self.root.title("GTX 1060 - Ultimate Mounter Edition (ADMIN)")
@@ -71,6 +58,22 @@ class ImageGenGUI:
         self.seed_var = tk.StringVar(value="-1") 
         
         self.setup_ui()
+
+    def cleanup(self):
+        """Leert den Speicher, um VRAM-Abstürze bei 6GB Karten zu verhindern."""
+        # Löscht alte Referenzen, falls vorhanden
+        if hasattr(self, 'pipe'):
+            del self.pipe
+        if hasattr(self, 'text_encoder'):
+            del self.text_encoder
+        if hasattr(self, 'adapter'):
+            del self.adapter
+        
+        # Leert den RAM und VRAM restlos
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.ipc_collect()
 
     def setup_ui(self):
         # Header
@@ -178,54 +181,33 @@ class ImageGenGUI:
         threading.Thread(target=self.gen_img_thread, daemon=True).start()
 
     def gen_img_thread(self):
-        def gen_img_thread(self):
-    try:
-        # 1. PLATZ SCHAFFEN!
-        self.cleanup() 
-        
-        start_t = time.time()
-        te_p = self.text_encoder_path.get() or "runwayml/stable-diffusion-v1-5"
-        
-        # 2. Laden (wie gehabt)
-        text_encoder = CLIPTextModel.from_pretrained(...)
-        # ... Rest deines Codes ...
-        
-        # Am Ende der Funktion (nach dem Speichern) nochmal aufräumen:
-        self.cleanup()
-        self.reset_status(...)
-    except Exception as e:
-        self.cleanup() # Auch im Fehlerfall aufräumen!
-        print(f"Fehler: {e}")
+        self.cleanup() # 1. PLATZ SCHAFFEN!
         try:
             start_t = time.time()
             te_p = self.text_encoder_path.get() or "runwayml/stable-diffusion-v1-5"
             
-            # WICHTIG: Hier BLEIBT low_cpu_mem_usage=False. Das killt den Meta-Tensor-Bug!
-            text_encoder = CLIPTextModel.from_pretrained(te_p, torch_dtype=torch.float16, low_cpu_mem_usage=False, **({"subfolder":"text_encoder"} if "runwayml" in te_p else {}))
+            # WICHTIG: Hier BLEIBT low_cpu_mem_usage=False.
+            self.text_encoder = CLIPTextModel.from_pretrained(te_p, torch_dtype=torch.float16, low_cpu_mem_usage=False, **({"subfolder":"text_encoder"} if "runwayml" in te_p else {}))
 
             p_cls = StableDiffusionImg2ImgPipeline if self.input_image_path.get() else StableDiffusionPipeline
             
-            # 2. WICHTIG: KEIN device="cuda" mehr hier! 
             # Wir lassen die Bibliothek das Modell erst einmal schonend laden.
-            pipe = p_cls.from_single_file(
+            self.pipe = p_cls.from_single_file(
                 self.model_path.get(), 
-                text_encoder=text_encoder, 
+                text_encoder=self.text_encoder, 
                 torch_dtype=torch.float16
             )
             
             if self.lora_path.get():
-                pipe.load_lora_weights(self.lora_path.get())
-                pipe.fuse_lora(lora_scale=0.8)
+                self.pipe.load_lora_weights(self.lora_path.get())
+                self.pipe.fuse_lora(lora_scale=0.8)
 
-            guidance = self.apply_turbo_logic(pipe)
+            guidance = self.apply_turbo_logic(self.pipe)
             
             # 3. --- DER ULTIMATIVE 6GB VRAM SCHUTZ ---
-            # Dieser Befehl ist der wichtigste: Er lagert das Modell intelligent aus
-            pipe.enable_model_cpu_offload() 
-            
-            # Diese beiden verhindern, dass der VRAM beim finalen Bild-Export platzt
-            pipe.enable_vae_slicing()
-            pipe.enable_vae_tiling()
+            self.pipe.enable_model_cpu_offload() 
+            self.pipe.enable_vae_slicing()
+            self.pipe.enable_vae_tiling()
             # ----------------------------------------
 
             batch_count = self.slider_batch.get()
@@ -252,14 +234,17 @@ class ImageGenGUI:
                 else:
                     args.update({"width": self.slider_width.get(), "height": self.slider_height.get()})
 
-                output = pipe(**args).images[0]
+                output = self.pipe(**args).images[0]
                 
                 fname = f"out_img_{int(time.time())}_seed{current_seed}.png"
                 output.save(fname)
 
+            self.cleanup() # 2. AM ENDE AUFRÄUMEN
             self.reset_status(f"Fertig! {batch_count} Bild(er) generiert in {time.time()-start_t:.1f}s.")
+            
         except Exception as e:
             print(f"Fehler: {e}")
+            self.cleanup() # Auch im Fehlerfall aufräumen!
             self.reset_status("Fehler aufgetreten!")
 
     # --- GENERIERUNG VIDEO ---
@@ -268,24 +253,7 @@ class ImageGenGUI:
         threading.Thread(target=self.gen_vid_thread, args=(fmt,), daemon=True).start()
 
     def gen_vid_thread(self, fmt):
-        def gen_img_thread(self):
-    try:
-        # 1. PLATZ SCHAFFEN!
-        self.cleanup() 
-        
-        start_t = time.time()
-        te_p = self.text_encoder_path.get() or "runwayml/stable-diffusion-v1-5"
-        
-        # 2. Laden (wie gehabt)
-        text_encoder = CLIPTextModel.from_pretrained(...)
-        # ... Rest deines Codes ...
-        
-        # Am Ende der Funktion (nach dem Speichern) nochmal aufräumen:
-        self.cleanup()
-        self.reset_status(...)
-    except Exception as e:
-        self.cleanup() # Auch im Fehlerfall aufräumen!
-        print(f"Fehler: {e}")
+        self.cleanup() # 1. PLATZ SCHAFFEN!
         try:
             start_t = time.time()
             ma_p = self.motion_adapter_path.get() or "guoyww/animatediff-motion-adapter-v1-5-3"
@@ -293,22 +261,22 @@ class ImageGenGUI:
             
             self.status_label.config(text="Lade KI-Modelle in den Speicher...", fg="orange")
             
-            # Auch hier: Winzige Modelle direkt in den RAM laden (kein Meta-Bug)
-            adapter = MotionAdapter.from_pretrained(ma_p, torch_dtype=torch.float16, low_cpu_mem_usage=False)
-            text_encoder = CLIPTextModel.from_pretrained(te_p, torch_dtype=torch.float16, low_cpu_mem_usage=False, **({"subfolder":"text_encoder"} if "runwayml" in te_p else {}))
+            # Auch hier: Winzige Modelle direkt in den RAM laden
+            self.adapter = MotionAdapter.from_pretrained(ma_p, torch_dtype=torch.float16, low_cpu_mem_usage=False)
+            self.text_encoder = CLIPTextModel.from_pretrained(te_p, torch_dtype=torch.float16, low_cpu_mem_usage=False, **({"subfolder":"text_encoder"} if "runwayml" in te_p else {}))
 
             # Riesiges Hauptmodell ram-schonend laden
-            pipe = AnimateDiffPipeline.from_single_file(self.model_path.get(), motion_adapter=adapter, text_encoder=text_encoder, torch_dtype=torch.float16)
+            self.pipe = AnimateDiffPipeline.from_single_file(self.model_path.get(), motion_adapter=self.adapter, text_encoder=self.text_encoder, torch_dtype=torch.float16)
             
             if self.lora_path.get():
-                pipe.load_lora_weights(self.lora_path.get())
-                pipe.fuse_lora(lora_scale=0.8)
+                self.pipe.load_lora_weights(self.lora_path.get())
+                self.pipe.fuse_lora(lora_scale=0.8)
 
-            guidance = self.apply_turbo_logic(pipe)
+            guidance = self.apply_turbo_logic(self.pipe)
             
             # Ultimativer VRAM-Schutz für Videos
-            pipe.enable_sequential_cpu_offload() 
-            pipe.enable_vae_slicing()
+            self.pipe.enable_sequential_cpu_offload() 
+            self.pipe.enable_vae_slicing()
 
             batch_count = self.slider_batch.get()
             
@@ -324,7 +292,7 @@ class ImageGenGUI:
 
                 self.status_label.config(text=f"Generiere Video {i+1} von {batch_count} (Seed: {current_seed})...", fg="orange")
 
-                output = pipe(prompt=self.prompt.get(), negative_prompt=self.neg_prompt.get(), 
+                output = self.pipe(prompt=self.prompt.get(), negative_prompt=self.neg_prompt.get(), 
                               num_frames=self.slider_frames.get(), num_inference_steps=self.slider_steps.get(), 
                               guidance_scale=guidance, width=self.slider_width.get(), height=self.slider_height.get(),
                               generator=generator) 
@@ -335,9 +303,12 @@ class ImageGenGUI:
                 else:
                     export_to_gif(output.frames[0], fname)
             
+            self.cleanup() # 2. AM ENDE AUFRÄUMEN
             self.reset_status(f"Fertig! {batch_count} Video(s) generiert in {time.time()-start_t:.1f}s.")
+            
         except Exception as e:
             print(f"Fehler: {e}")
+            self.cleanup() # Auch im Fehlerfall aufräumen!
             self.reset_status("Fehler aufgetreten!")
 
 # --- START ---
