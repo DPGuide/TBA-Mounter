@@ -320,7 +320,11 @@ class ImageGenGUI:
             
             # ALLES IN 32-BIT LADEN (Keine Kompromisse, reines Float32)
             self.adapter = MotionAdapter.from_pretrained(ma_p, torch_dtype=torch.float32)
-            self.text_encoder = CLIPTextModel.from_pretrained(te_p, torch_dtype=torch.float32)
+            self.text_encoder = CLIPTextModel.from_pretrained(
+                te_p, 
+                torch_dtype=torch.float32, 
+                **({"subfolder": "text_encoder"} if "runwayml" in te_p else {})
+            )
             self.pipe = AnimateDiffPipeline.from_single_file(
                 self.model_path.get(), 
                 motion_adapter=self.adapter, 
