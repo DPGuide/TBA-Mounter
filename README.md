@@ -1,5 +1,9 @@
 ***do not use negative prompts, no ! dont use. i dont know , just dont use! start with clean version maybe put in six fingers***
 
+***example from clean version with negativ prompots just empty***
+<img width="622" height="617" alt="image" src="https://github.com/user-attachments/assets/0a00a18b-f4cf-48ff-b450-3bb6a9038bec" />
+
+
 ***Test file +2GB image***
 
 <img width="297" height="417" alt="image" src="https://github.com/user-attachments/assets/c7a966cd-c444-49e5-af81-b3f013ed2eea" />
