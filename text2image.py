@@ -267,11 +267,11 @@ class ImageGenGUI:
             # Riesiges Hauptmodell ram-schonend laden
             self.pipe = AnimateDiffPipeline.from_single_file(self.model_path.get(), motion_adapter=self.adapter, text_encoder=self.text_encoder, torch_dtype=torch.float16)
             # !!! NEU: öfters mal Black Screen bei der GTX 1060 !!!
-            self.pipe.upcast_vae()
+            self.pipe.vae.to(dtype=torch.float32)
             
             if self.lora_path.get():
                 self.pipe.load_lora_weights(self.lora_path.get())
-                self.pipe.fuse_lora(lora_scale=0.8)
+                self.pipe.fuse_lora(lora_scale=0.75)
 
             guidance = self.apply_turbo_logic(self.pipe)
             
