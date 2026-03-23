@@ -8,6 +8,8 @@ import os
 import time
 import random 
 from PIL import Image as PILImage
+import torch
+print("!!! GRAFIKKARTEN-TEST: ", torch.cuda.is_available(), " !!!")
 print("Ist CUDA aktiv?", torch.cuda.is_available())
 
 # KI Bibliotheken
@@ -164,22 +166,23 @@ class ImageGenGUI:
         try:
             start_t = time.time()
             te_p = self.text_encoder_path.get() or "runwayml/stable-diffusion-v1-5"
+            
+            # WICHTIG: Hier BLEIBT low_cpu_mem_usage=False. Das killt den Meta-Tensor-Bug!
             text_encoder = CLIPTextModel.from_pretrained(te_p, torch_dtype=torch.float16, low_cpu_mem_usage=False, **({"subfolder":"text_encoder"} if "runwayml" in te_p else {}))
-
+            
             p_cls = StableDiffusionImg2ImgPipeline if self.input_image_path.get() else StableDiffusionPipeline
-            pipe = p_cls.from_single_file(
-                self.model_path.get(), 
-                text_encoder=text_encoder, 
-                torch_dtype=torch.float16, 
-                device="cuda" # <-- Zwingt es direkt auf die GPU
-            )
+            
+            # WICHTIG: Hier WURDE ES ENTFERNT. Das schützt deine 16 GB RAM vor dem Absturz!
+            pipe = p_cls.from_single_file(self.model_path.get(), text_encoder=text_encoder, torch_dtype=torch.float16)
             
             if self.lora_path.get():
                 pipe.load_lora_weights(self.lora_path.get())
                 pipe.fuse_lora(lora_scale=0.8)
-            pipe.enable_xformers_memory_efficient_attention()
+
             guidance = self.apply_turbo_logic(pipe)
-            #//pipe.to("cuda")
+            
+            # Speichermagie & Offloading für deine 6 GB GTX 1060
+            pipe.enable_model_cpu_offload()
 
             batch_count = self.slider_batch.get()
             
@@ -226,19 +229,23 @@ class ImageGenGUI:
             ma_p = self.motion_adapter_path.get() or "guoyww/animatediff-motion-adapter-v1-5-3"
             te_p = self.text_encoder_path.get() or "runwayml/stable-diffusion-v1-5"
             
-            # Modelle laden
             self.status_label.config(text="Lade KI-Modelle in den Speicher...", fg="orange")
+            
+            # Auch hier: Winzige Modelle direkt in den RAM laden (kein Meta-Bug)
             adapter = MotionAdapter.from_pretrained(ma_p, torch_dtype=torch.float16, low_cpu_mem_usage=False)
             text_encoder = CLIPTextModel.from_pretrained(te_p, torch_dtype=torch.float16, low_cpu_mem_usage=False, **({"subfolder":"text_encoder"} if "runwayml" in te_p else {}))
 
-            pipe = AnimateDiffPipeline.from_single_file(self.model_path.get(), motion_adapter=adapter, text_encoder=text_encoder, torch_dtype=torch.float16, low_cpu_mem_usage=False)
+            # Riesiges Hauptmodell ram-schonend laden
+            pipe = AnimateDiffPipeline.from_single_file(self.model_path.get(), motion_adapter=adapter, text_encoder=text_encoder, torch_dtype=torch.float16)
             
             if self.lora_path.get():
                 pipe.load_lora_weights(self.lora_path.get())
                 pipe.fuse_lora(lora_scale=0.8)
-            pipe.enable_xformers_memory_efficient_attention()
+
             guidance = self.apply_turbo_logic(pipe)
-            #//pipe.to("cuda")
+            
+            # Ultimativer VRAM-Schutz für Videos
+            pipe.enable_sequential_cpu_offload() 
             pipe.enable_vae_slicing()
 
             batch_count = self.slider_batch.get()
@@ -248,7 +255,6 @@ class ImageGenGUI:
             except ValueError:
                 base_seed = -1 
 
-            # --- NEU: Die Video-Schleife ---
             for i in range(batch_count):
                 current_seed = base_seed + i if base_seed != -1 else random.randint(0, 2147483647)
                 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -259,7 +265,7 @@ class ImageGenGUI:
                 output = pipe(prompt=self.prompt.get(), negative_prompt=self.neg_prompt.get(), 
                               num_frames=self.slider_frames.get(), num_inference_steps=self.slider_steps.get(), 
                               guidance_scale=guidance, width=self.slider_width.get(), height=self.slider_height.get(),
-                              generator=generator) # Generator übergeben
+                              generator=generator) 
                 
                 fname = f"out_vid_{int(time.time())}_seed{current_seed}.{fmt}"
                 if fmt == "mp4":
