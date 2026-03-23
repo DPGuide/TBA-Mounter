@@ -260,12 +260,12 @@ class ImageGenGUI:
             
             self.status_label.config(text="Lade KI-Modelle in den Speicher...", fg="orange")
             
-            # Auch hier: Winzige Modelle direkt in den RAM laden
-            self.adapter = MotionAdapter.from_pretrained(ma_p, torch_dtype=torch.float16, low_cpu_mem_usage=False)
-            self.text_encoder = CLIPTextModel.from_pretrained(te_p, torch_dtype=torch.float16, low_cpu_mem_usage=False, **({"subfolder":"text_encoder"} if "runwayml" in te_p else {}))
+            # 1. Alles im sicheren 32-Bit Modus laden (ohne fp16) - verhindert den Matsch!
+            self.adapter = MotionAdapter.from_pretrained(ma_p, low_cpu_mem_usage=False)
+            self.text_encoder = CLIPTextModel.from_pretrained(te_p, low_cpu_mem_usage=False, **({"subfolder":"text_encoder"} if "runwayml" in te_p else {}))
 
-            # Riesiges Hauptmodell ram-schonend laden
-            self.pipe = AnimateDiffPipeline.from_single_file(self.model_path.get(), motion_adapter=self.adapter, text_encoder=self.text_encoder, torch_dtype=torch.float16)
+            # 2. Hauptmodell im sicheren 32-Bit Modus laden
+            self.pipe = AnimateDiffPipeline.from_single_file(self.model_path.get(), motion_adapter=self.adapter, text_encoder=self.text_encoder)
                         
             if self.lora_path.get():
                 self.pipe.load_lora_weights(self.lora_path.get())
