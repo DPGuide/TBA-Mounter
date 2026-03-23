@@ -8,7 +8,9 @@
 
 
 
-
+pip install xformers
+pip uninstall torch torchvision torchaudio -y
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 
 
 ***run as admin "MountDrive.exe" , just make and *.tba image of youre folder from youre AI model´s***
