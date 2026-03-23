@@ -5,10 +5,12 @@ import torch
 import ctypes
 import sys
 import os
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 import time
 import random 
 from PIL import Image as PILImage
 import torch
+import gc  # Garbage Collector
 print("!!! GRAFIKKARTEN-TEST: ", torch.cuda.is_available(), " !!!")
 print("Ist CUDA aktiv?", torch.cuda.is_available())
 
@@ -37,6 +39,19 @@ if not is_admin():
 
 # --- HAUPTKLASSE ---
 class ImageGenGUI:
+    def cleanup(self):
+    # Löscht alte Referenzen, falls vorhanden
+    if hasattr(self, 'pipe'):
+        del self.pipe
+    if hasattr(self, 'text_encoder'):
+        del self.text_encoder
+    if hasattr(self, 'adapter'):
+        del self.adapter
+    
+    # Leert den RAM und VRAM restlos
+    gc.collect()
+    torch.cuda.empty_cache()
+    torch.cuda.ipc_collect()
     def __init__(self, root):
         self.root = root
         self.root.title("GTX 1060 - Ultimate Mounter Edition (ADMIN)")
@@ -163,17 +178,40 @@ class ImageGenGUI:
         threading.Thread(target=self.gen_img_thread, daemon=True).start()
 
     def gen_img_thread(self):
+        def gen_img_thread(self):
+    try:
+        # 1. PLATZ SCHAFFEN!
+        self.cleanup() 
+        
+        start_t = time.time()
+        te_p = self.text_encoder_path.get() or "runwayml/stable-diffusion-v1-5"
+        
+        # 2. Laden (wie gehabt)
+        text_encoder = CLIPTextModel.from_pretrained(...)
+        # ... Rest deines Codes ...
+        
+        # Am Ende der Funktion (nach dem Speichern) nochmal aufräumen:
+        self.cleanup()
+        self.reset_status(...)
+    except Exception as e:
+        self.cleanup() # Auch im Fehlerfall aufräumen!
+        print(f"Fehler: {e}")
         try:
             start_t = time.time()
             te_p = self.text_encoder_path.get() or "runwayml/stable-diffusion-v1-5"
             
             # WICHTIG: Hier BLEIBT low_cpu_mem_usage=False. Das killt den Meta-Tensor-Bug!
             text_encoder = CLIPTextModel.from_pretrained(te_p, torch_dtype=torch.float16, low_cpu_mem_usage=False, **({"subfolder":"text_encoder"} if "runwayml" in te_p else {}))
-            
+
             p_cls = StableDiffusionImg2ImgPipeline if self.input_image_path.get() else StableDiffusionPipeline
             
-            # WICHTIG: Hier WURDE ES ENTFERNT. Das schützt deine 16 GB RAM vor dem Absturz!
-            pipe = p_cls.from_single_file(self.model_path.get(), text_encoder=text_encoder, torch_dtype=torch.float16)
+            # 2. WICHTIG: KEIN device="cuda" mehr hier! 
+            # Wir lassen die Bibliothek das Modell erst einmal schonend laden.
+            pipe = p_cls.from_single_file(
+                self.model_path.get(), 
+                text_encoder=text_encoder, 
+                torch_dtype=torch.float16
+            )
             
             if self.lora_path.get():
                 pipe.load_lora_weights(self.lora_path.get())
@@ -181,8 +219,14 @@ class ImageGenGUI:
 
             guidance = self.apply_turbo_logic(pipe)
             
-            # Speichermagie & Offloading für deine 6 GB GTX 1060
-            pipe.enable_model_cpu_offload()
+            # 3. --- DER ULTIMATIVE 6GB VRAM SCHUTZ ---
+            # Dieser Befehl ist der wichtigste: Er lagert das Modell intelligent aus
+            pipe.enable_model_cpu_offload() 
+            
+            # Diese beiden verhindern, dass der VRAM beim finalen Bild-Export platzt
+            pipe.enable_vae_slicing()
+            pipe.enable_vae_tiling()
+            # ----------------------------------------
 
             batch_count = self.slider_batch.get()
             
@@ -224,6 +268,24 @@ class ImageGenGUI:
         threading.Thread(target=self.gen_vid_thread, args=(fmt,), daemon=True).start()
 
     def gen_vid_thread(self, fmt):
+        def gen_img_thread(self):
+    try:
+        # 1. PLATZ SCHAFFEN!
+        self.cleanup() 
+        
+        start_t = time.time()
+        te_p = self.text_encoder_path.get() or "runwayml/stable-diffusion-v1-5"
+        
+        # 2. Laden (wie gehabt)
+        text_encoder = CLIPTextModel.from_pretrained(...)
+        # ... Rest deines Codes ...
+        
+        # Am Ende der Funktion (nach dem Speichern) nochmal aufräumen:
+        self.cleanup()
+        self.reset_status(...)
+    except Exception as e:
+        self.cleanup() # Auch im Fehlerfall aufräumen!
+        print(f"Fehler: {e}")
         try:
             start_t = time.time()
             ma_p = self.motion_adapter_path.get() or "guoyww/animatediff-motion-adapter-v1-5-3"
