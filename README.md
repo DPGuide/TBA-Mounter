@@ -1,4 +1,4 @@
-***do not use negative prompts, no ! dont use. i dont know , just dont use!***
+***do not use negative prompts, no ! dont use. i dont know , just dont use! start with clean version maybe put in six fingers***
 
 ***Test file +2GB image***
 
