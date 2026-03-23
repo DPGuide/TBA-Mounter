@@ -74,6 +74,44 @@ class ImageGenGUI:
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
             torch.cuda.ipc_collect()
+    def start_rennauto(self, basis_text="Generierung startet..."):
+        self.is_racing = True
+        self.car_pos = 0
+        self.track_length = 20
+        self.basis_text = basis_text
+        self.animate_rennauto()
+
+    def animate_rennauto(self):
+        if not getattr(self, "is_racing", False):
+            return # Motor aus, Animation stoppen
+            
+        # Strecke bauen und Auto setzen
+        track = ["-"] * self.track_length
+        # Ping-Pong Logik (fährt hin und zurück)
+        ping_pong_pos = self.car_pos % (self.track_length * 2)
+        if ping_pong_pos >= self.track_length:
+            actual_pos = (self.track_length * 2) - 1 - ping_pong_pos
+            car = "🏎️" # Fährt nach links
+        else:
+            actual_pos = ping_pong_pos
+            car = "🏎️" # Fährt nach rechts
+            
+        track[actual_pos] = car
+        track_str = "".join(track)
+        
+        # Label aktualisieren
+        self.status_label.config(text=f"{self.basis_text}\n[{track_str}]", fg="orange")
+        
+        self.car_pos += 1
+        # In 150 Millisekunden das nächste Bild aufrufen
+        self.status_label.after(150, self.animate_rennauto)
+        
+    def stop_rennauto(self, end_text="Fertig!", color="#2ecc71"):
+        self.is_racing = False
+        for b in [self.btn_img, self.btn_gif, self.btn_mp4]: 
+            b.config(state="normal")
+        
+        self.status_label.config(text=end_text, fg=color)
 
     def setup_ui(self):
         # Header
@@ -180,37 +218,45 @@ class ImageGenGUI:
         self.set_busy()
         threading.Thread(target=self.gen_img_thread, daemon=True).start()
 
+    # --- GENERIERUNG BILD (Optimiert mit Rennauto & matscho-schutz) ---
     def gen_img_thread(self):
         self.cleanup() # 1. PLATZ SCHAFFEN!
         try:
             start_t = time.time()
             te_p = self.text_encoder_path.get() or "runwayml/stable-diffusion-v1-5"
             
-            # WICHTIG: Hier BLEIBT low_cpu_mem_usage=False.
+            # 1. SETUP & Lade-Schutz
+            # Wir laden alles in 16-Bit, aber VAE auf 32-Bit gegen Matsch.
+            self.status_label.config(text="Lade KI-Modelle für Bilder...", fg="orange")
             self.text_encoder = CLIPTextModel.from_pretrained(te_p, torch_dtype=torch.float16, low_cpu_mem_usage=False, **({"subfolder":"text_encoder"} if "runwayml" in te_p else {}))
 
             p_cls = StableDiffusionImg2ImgPipeline if self.input_image_path.get() else StableDiffusionPipeline
-            
-            # Wir lassen die Bibliothek das Modell erst einmal schonend laden.
             self.pipe = p_cls.from_single_file(
                 self.model_path.get(), 
                 text_encoder=self.text_encoder, 
                 torch_dtype=torch.float16
             )
             
+            # MATSCH-SCHUTZ: Zwinge VAE auf 32-Bit für reine Bilder
+            self.pipe.vae.to(dtype=torch.float32)
+            original_decode = self.pipe.vae.decode
+            def safe_decode(z, *args, **kwargs):
+                return original_decode(z.to(dtype=torch.float32), *args, **kwargs)
+            self.pipe.vae.decode = safe_decode
+
             if self.lora_path.get():
                 self.pipe.load_lora_weights(self.lora_path.get())
                 self.pipe.fuse_lora(lora_scale=0.8)
 
             guidance = self.apply_turbo_logic(self.pipe)
             
-            # 3. --- DER ULTIMATIVE 6GB VRAM SCHUTZ ---
+            # 2. VRAM SCHUTZ für die 1060
             self.pipe.enable_model_cpu_offload() 
-            self.pipe.enable_vae_slicing()
-            self.pipe.enable_vae_tiling()
+            self.pipe.vae.enable_slicing()
+            self.pipe.vae.enable_tiling()
+            self.pipe.enable_attention_slicing(1) # Maximale Sicherheit
 
             batch_count = self.slider_batch.get()
-            
             try:
                 base_seed = int(self.seed_var.get())
             except ValueError:
@@ -221,7 +267,8 @@ class ImageGenGUI:
                 device = "cuda" if torch.cuda.is_available() else "cpu"
                 generator = torch.Generator(device=device).manual_seed(current_seed)
 
-                self.status_label.config(text=f"Generiere Bild {i+1} von {batch_count} (Seed: {current_seed})...", fg="orange")
+                # --- RENNAUTO STARTEN (Geistiges Eigentum des Users) ---
+                self.start_rennauto(f"Bild {i+1} von {batch_count} wird gerendert... (Seed: {current_seed})")
                 
                 args = {"prompt": self.prompt.get(), "negative_prompt": self.neg_prompt.get(), 
                         "num_inference_steps": self.slider_steps.get(), "guidance_scale": guidance,
@@ -238,91 +285,97 @@ class ImageGenGUI:
                 fname = f"out_img_{int(time.time())}_seed{current_seed}.png"
                 output.save(fname)
 
-            self.cleanup() # 2. AM ENDE AUFRÄUMEN
-            self.reset_status(f"Fertig! {batch_count} Bild(er) generiert in {time.time()-start_t:.1f}s.")
+            # --- RENNAUTO STOPPEN (Mit Rundenzeit!) ---
+            self.stop_rennauto(f"Ziel erreicht! {batch_count} Bild(er) gespeichert in {time.time()-start_t:.1f}s.")
+            self.cleanup() 
             
         except Exception as e:
-            print(f"Fehler: {e}")
-            self.cleanup() # Auch im Fehlerfall aufräumen!
-            self.reset_status("Fehler aufgetreten!")
-
-    # --- GENERIERUNG VIDEO ---
+            print(f"Abbruch: {e}")
+            self.cleanup() 
+            if hasattr(self, 'stop_rennauto'):
+                self.stop_rennauto("Fehler beim Rendern!", "red")
+                
+    # --- START GENERIERUNG VIDEO ---
     def start_gen_vid(self, fmt):
         self.set_busy(True)
         threading.Thread(target=self.gen_vid_thread, args=(fmt,), daemon=True).start()
 
+    # --- GENERIERUNG VIDEO (Chirurgisches Mixed Precision Tuning gegen Matsch & Crash) ---
     def gen_vid_thread(self, fmt):
-        self.cleanup() # 1. PLATZ SCHAFFEN!
+        self.cleanup()
         try:
             start_t = time.time()
-            ma_p = self.motion_adapter_path.get() or "guoyww/animatediff-motion-adapter-v1-5-2"
-            te_p = self.text_encoder_path.get() or "runwayml/stable-diffusion-v1-5"
+            ma_p = self.motion_adapter_path.get()
+            te_p = self.text_encoder_path.get()
             
-            self.status_label.config(text="Lade KI-Modelle (Etappen-Modus)...", fg="orange")
+            self.status_label.config(text="Synchronisiere chirurgisches 32-Bit Tuning...", fg="orange")
             
-            # A. Laden in 16-Bit (Spart die 3 GB auf Z:)
-            self.adapter = MotionAdapter.from_pretrained(ma_p, torch_dtype=torch.float16, low_cpu_mem_usage=False)
-            self.text_encoder = CLIPTextModel.from_pretrained(te_p, torch_dtype=torch.float16, low_cpu_mem_usage=False)
-            self.pipe = AnimateDiffPipeline.from_single_file(self.model_path.get(), motion_adapter=self.adapter, text_encoder=self.text_encoder, torch_dtype=torch.float16)
+            # 1. SETUP: Lade alles in sparsamem 16-Bit (Verhindert den RAM-Crash)
+            self.adapter = MotionAdapter.from_pretrained(ma_p, torch_dtype=torch.float16)
+            self.text_encoder = CLIPTextModel.from_pretrained(te_p, torch_dtype=torch.float16)
+            self.pipe = AnimateDiffPipeline.from_single_file(
+                self.model_path.get(), 
+                motion_adapter=self.adapter, 
+                text_encoder=self.text_encoder, 
+                torch_dtype=torch.float16
+            )
             
-            # 2. DER STABILE ETAPPEN-FIX (VAE-Bypass)
-            # Wir lassen das UNet in 16-Bit (gegen den Crash), 
-            # aber zwingen den VAE auf 32-Bit (gegen den Matsch).
+            # 2. VAE (Maler) auf 32-Bit zwingen (Wichtig gegen den braunen Farb-Matsch!)
             self.pipe.vae.to(dtype=torch.float32)
-            
-            # Die magische Brücke: Wandelt 16-Bit Daten vor dem VAE in 32-Bit um
+
+            # --- DIE MAGISCHE BRÜCKE FÜR DEN MALER (Verhindert Crash bei 100%) ---
             original_decode = self.pipe.vae.decode
             def safe_decode(z, *args, **kwargs):
                 return original_decode(z.to(dtype=torch.float32), *args, **kwargs)
             self.pipe.vae.decode = safe_decode
 
-            # 3. WICHTIG: Guidance definieren
-            guidance = self.apply_turbo_logic(self.pipe)
+            # 3. DER SAUBERE ATTENTION-UPCAST (Kein manuelles Modul-Gehacke mehr!)
+            # Dies sagt dem UNet: "Behalte deine 16-Bit-Gewichte, aber rechne intern mit 32-Bit Präzision"
+            # Das ist exakt für Karten wie die 1060 gemacht.
+            if hasattr(self.pipe, "upcast_vae"):
+                self.pipe.upcast_vae()
             
-            # 4. VRAM-Management (Update für Version 0.40.0 Kompatibilität)
-            self.pipe.enable_sequential_cpu_offload() 
-            self.pipe.vae.enable_slicing() # Neue Schreibweise gegen die Warnung
-            self.pipe.enable_attention_slicing()
-
+            # 4. VRAM SCHUTZ für die 1060
+            self.pipe.enable_model_cpu_offload() # Oft stabiler als sequential, probier dies zuerst
+            self.pipe.enable_vae_slicing()
+            self.pipe.enable_attention_slicing(1)
+            
+            guidance = self.apply_turbo_logic(self.pipe)
             batch_count = self.slider_batch.get()
             
-            try:
-                base_seed = int(self.seed_var.get())
-            except ValueError:
-                base_seed = -1 
-
             for i in range(batch_count):
-                current_seed = base_seed + i if base_seed != -1 else random.randint(0, 2147483647)
-                device = "cuda" if torch.cuda.is_available() else "cpu"
-                generator = torch.Generator(device=device).manual_seed(current_seed)
+                seed = random.randint(0, 10**9) if int(self.seed_var.get()) == -1 else int(self.seed_var.get()) + i
+                generator = torch.Generator(device="cuda").manual_seed(seed)
 
-                self.status_label.config(text=f"Video {i+1}/{batch_count} (Seed: {current_seed})...", fg="orange")
+                # --- RENNAUTO STARTEN (Geistiges Eigentum des Users) ---
+                self.start_rennauto(f"Video {i+1}/{batch_count} wird im Anti-Matsch Modus gerendert...")
 
-                # Hier wird guidance jetzt korrekt benutzt:
                 output = self.pipe(
-                    prompt=self.prompt.get(), 
-                    negative_prompt=self.neg_prompt.get(), 
-                    num_frames=self.slider_frames.get(), 
-                    num_inference_steps=self.slider_steps.get(), 
-                    guidance_scale=guidance, 
-                    width=self.slider_width.get(), 
+                    prompt=self.prompt.get(),
+                    negative_prompt=self.neg_prompt.get(),
+                    num_frames=self.slider_frames.get(),
+                    num_inference_steps=self.slider_steps.get(),
+                    guidance_scale=guidance,
+                    width=self.slider_width.get(),
                     height=self.slider_height.get(),
                     generator=generator
-                ) 
-                
-                fname = f"out_vid_{int(time.time())}_seed{current_seed}.{fmt}"
-                if fmt == "mp4":
-                    export_to_video(output.frames[0], fname, fps=8)
-                else:
-                    export_to_gif(output.frames[0], fname)
-            
-            self.cleanup() 
-            self.reset_status(f"Fertig! Video(s) auf Platte in {time.time()-start_t:.1f}s.")
-            
+                )
+
+                fname = f"out_vid_{int(time.time())}_seed{seed}.{fmt}"
+                if fmt == "mp4": export_to_video(output.frames[0], fname, fps=8)
+                else: export_to_gif(output.frames[0], fname)
+
+            # --- RENNAUTO STOPPEN (Mit Rundenzeit!) ---
+            self.stop_rennauto(f"Ziel erreicht! Video(s) gespeichert in {time.time()-start_t:.1f}s.")
+            self.cleanup()
+
         except Exception as e:
-            print(f"Fehler: {e}")
-            self.cleanup() 
-            self.reset_status(f"Fehler: {e}")
+            print(f"Abbruch: {e}")
+            import traceback
+            traceback.print_exc() 
+            self.cleanup()
+            if hasattr(self, 'stop_rennauto'):
+                self.stop_rennauto("Fehler beim Rendern!", "red")
 
 # --- START ---
 if __name__ == "__main__":
