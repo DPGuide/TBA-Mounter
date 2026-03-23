@@ -1,5 +1,10 @@
 ***do not use negative prompts, no ! dont use. i dont know , just dont use! start with clean version maybe put in six fingers***
 
+***racing car***
+
+<img width="435" height="118" alt="image" src="https://github.com/user-attachments/assets/b525ef21-19a1-4f20-b367-3fad9612765d" />
+
+
 ***example from clean version with negativ prompots just empty***
 <img width="622" height="617" alt="image" src="https://github.com/user-attachments/assets/0a00a18b-f4cf-48ff-b450-3bb6a9038bec" /><img width="514" height="509" alt="image" src="https://github.com/user-attachments/assets/ba2ee046-162c-40a3-b018-fa8e428db48e" /><img width="513" height="509" alt="image" src="https://github.com/user-attachments/assets/a59d794e-93ea-4d49-9210-f0ffcd1d7da9" /><img width="510" height="509" alt="image" src="https://github.com/user-attachments/assets/1037e86e-b3f4-4218-8049-7ffa7d285277" />
 
