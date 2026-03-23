@@ -260,22 +260,21 @@ class ImageGenGUI:
             
             self.status_label.config(text="Lade KI-Modelle in den Speicher...", fg="orange")
             
-            # 1. Alles im sicheren 32-Bit Modus laden (ohne fp16) - verhindert den Matsch!
+            # 1. WIR LÖSCHEN FP16 KOMPLETT! Alles wird in reinstem 32-Bit geladen.
             self.adapter = MotionAdapter.from_pretrained(ma_p, low_cpu_mem_usage=False)
             self.text_encoder = CLIPTextModel.from_pretrained(te_p, low_cpu_mem_usage=False, **({"subfolder":"text_encoder"} if "runwayml" in te_p else {}))
-
-            # 2. Hauptmodell im sicheren 32-Bit Modus laden
             self.pipe = AnimateDiffPipeline.from_single_file(self.model_path.get(), motion_adapter=self.adapter, text_encoder=self.text_encoder)
-                        
+            
             if self.lora_path.get():
                 self.pipe.load_lora_weights(self.lora_path.get())
-                self.pipe.fuse_lora(lora_scale=0.75)
+                self.pipe.fuse_lora(lora_scale=0.8)
 
             guidance = self.apply_turbo_logic(self.pipe)
             
-            # Ultimativer VRAM-Schutz für Videos
+            # Diese Befehle retten dich jetzt vor dem VRAM-Crash im 32-Bit Modus
             self.pipe.enable_sequential_cpu_offload() 
             self.pipe.enable_vae_slicing()
+            self.pipe.enable_attention_slicing()
 
             batch_count = self.slider_batch.get()
             
