@@ -208,7 +208,6 @@ class ImageGenGUI:
             self.pipe.enable_model_cpu_offload() 
             self.pipe.enable_vae_slicing()
             self.pipe.enable_vae_tiling()
-            # ----------------------------------------
 
             batch_count = self.slider_batch.get()
             
@@ -266,7 +265,7 @@ class ImageGenGUI:
             self.text_encoder = CLIPTextModel.from_pretrained(te_p, torch_dtype=torch.float16, low_cpu_mem_usage=False, **({"subfolder":"text_encoder"} if "runwayml" in te_p else {}))
 
             # Riesiges Hauptmodell ram-schonend laden
-            self.pipe = AnimateDiffPipeline.from_single_file(...)
+            self.pipe = AnimateDiffPipeline.from_single_file(self.model_path.get(), motion_adapter=self.adapter, text_encoder=self.text_encoder, torch_dtype=torch.float16)
             # !!! NEU: öfters mal Black Screen bei der GTX 1060 !!!
             self.pipe.upcast_vae()
             
