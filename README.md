@@ -1,3 +1,5 @@
+***do not use negative prompts, no ! dont use. i dont know , just dont use!***
+
 ***Test file +2GB image***
 
 <img width="297" height="417" alt="image" src="https://github.com/user-attachments/assets/c7a966cd-c444-49e5-af81-b3f013ed2eea" />
