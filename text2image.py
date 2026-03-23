@@ -8,6 +8,7 @@ import os
 import time
 import random 
 from PIL import Image as PILImage
+print("Ist CUDA aktiv?", torch.cuda.is_available())
 
 # KI Bibliotheken
 from diffusers import (
@@ -163,17 +164,22 @@ class ImageGenGUI:
         try:
             start_t = time.time()
             te_p = self.text_encoder_path.get() or "runwayml/stable-diffusion-v1-5"
-            text_encoder = CLIPTextModel.from_pretrained(te_p, torch_dtype=torch.float16, **({"subfolder":"text_encoder"} if "runwayml" in te_p else {}))
-            
+            text_encoder = CLIPTextModel.from_pretrained(te_p, torch_dtype=torch.float16, low_cpu_mem_usage=False, **({"subfolder":"text_encoder"} if "runwayml" in te_p else {}))
+
             p_cls = StableDiffusionImg2ImgPipeline if self.input_image_path.get() else StableDiffusionPipeline
-            pipe = p_cls.from_single_file(self.model_path.get(), text_encoder=text_encoder, torch_dtype=torch.float16)
+            pipe = p_cls.from_single_file(
+                self.model_path.get(), 
+                text_encoder=text_encoder, 
+                torch_dtype=torch.float16, 
+                device="cuda" # <-- Zwingt es direkt auf die GPU
+            )
             
             if self.lora_path.get():
                 pipe.load_lora_weights(self.lora_path.get())
                 pipe.fuse_lora(lora_scale=0.8)
-
+            pipe.enable_xformers_memory_efficient_attention()
             guidance = self.apply_turbo_logic(pipe)
-            pipe.enable_model_cpu_offload()
+            #//pipe.to("cuda")
 
             batch_count = self.slider_batch.get()
             
@@ -222,17 +228,18 @@ class ImageGenGUI:
             
             # Modelle laden
             self.status_label.config(text="Lade KI-Modelle in den Speicher...", fg="orange")
-            adapter = MotionAdapter.from_pretrained(ma_p, torch_dtype=torch.float16)
-            text_encoder = CLIPTextModel.from_pretrained(te_p, torch_dtype=torch.float16, **({"subfolder":"text_encoder"} if "runwayml" in te_p else {}))
-            
-            pipe = AnimateDiffPipeline.from_single_file(self.model_path.get(), motion_adapter=adapter, text_encoder=text_encoder, torch_dtype=torch.float16)
+            adapter = MotionAdapter.from_pretrained(ma_p, torch_dtype=torch.float16, low_cpu_mem_usage=False)
+            text_encoder = CLIPTextModel.from_pretrained(te_p, torch_dtype=torch.float16, low_cpu_mem_usage=False, **({"subfolder":"text_encoder"} if "runwayml" in te_p else {}))
+
+            pipe = AnimateDiffPipeline.from_single_file(self.model_path.get(), motion_adapter=adapter, text_encoder=text_encoder, torch_dtype=torch.float16, low_cpu_mem_usage=False)
             
             if self.lora_path.get():
                 pipe.load_lora_weights(self.lora_path.get())
                 pipe.fuse_lora(lora_scale=0.8)
-
+            pipe.enable_xformers_memory_efficient_attention()
             guidance = self.apply_turbo_logic(pipe)
-            pipe.enable_sequential_cpu_offload() # Wichtig für die 6GB VRAM!
+            #//pipe.to("cuda")
+            pipe.enable_vae_slicing()
 
             batch_count = self.slider_batch.get()
             
