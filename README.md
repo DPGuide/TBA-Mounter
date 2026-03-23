@@ -6,8 +6,7 @@
 
 
 
-
-
+yeah with seed´s you can create longer videos etc. and start next few sec to generate from the last seed point.
 
 ***pip install xformers***
 
