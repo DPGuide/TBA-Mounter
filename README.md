@@ -1,3 +1,5 @@
+***first video generator then Audio generator , because of VRAM***
+
 ***do not use negative prompts, no ! dont use. i dont know , just dont use! start with clean version maybe put in six fingers***
 
 ***racing car***
