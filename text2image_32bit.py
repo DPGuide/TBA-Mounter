@@ -304,7 +304,14 @@ class ImageGenGUI:
         try:
             start_t = time.time()
             ma_p = self.motion_adapter_path.get()
+            if not ma_p or ma_p.strip() == "":
+                ma_p = "guoyww/animatediff-motion-adapter-v1-5-2"
+                print("Ziehe Motion-Adapter frisch aus dem Netz...")
+                
             te_p = self.text_encoder_path.get()
+            if not te_p or te_p.strip() == "":
+                te_p = "runwayml/stable-diffusion-v1-5"
+                print("Ziehe Text-Encoder frisch aus dem Netz...")
             
             if "PYTORCH_CUDA_ALLOC_CONF" in os.environ:
                 del os.environ["PYTORCH_CUDA_ALLOC_CONF"]
