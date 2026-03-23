@@ -28,6 +28,8 @@ yeah with seed´s you can create longer videos etc. and start next few sec to ge
 
 ***pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121***
 
+***pip install imageio[ffmpeg] imageio-ffmpeg***
+
 
 ***run as admin "MountDrive.exe" , just make and *.tba image of youre folder from youre AI model´s***
 
