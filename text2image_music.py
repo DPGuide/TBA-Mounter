@@ -1,6 +1,7 @@
 import tkinter as tk
 from tkinter import filedialog, Scale, messagebox
 import threading
+import traceback
 import torch
 import ctypes
 import sys
@@ -245,6 +246,7 @@ class ImageGenGUI:
                 print(f"Notbremse bei Step {step_index} gezogen!")
                 raise StopGenerationException("User pressed stop!")
             return callback_kwargs
+
         try:
             start_t = time.time()
             self.status_label.config(text="Video wird generiert...", fg="orange")
@@ -298,18 +300,15 @@ class ImageGenGUI:
                     export_to_video(output.frames[0], fname, fps=256)
                 else: 
                     export_to_gif(output.frames[0], fname)
-                import gc, torch
                 gc.collect()
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
-
                 self.stop_rennauto(f"Goal achieved! Video(s) saved in {time.time()-start_t:.1f}s.")
                 if getattr(self, 'mit_audio_mixen', False):
                     print("Bereite Audio-Muxing vor...")
-                    import os, subprocess 
                     final_music_video = f"MIX_vid_{int(time.time())}_seed{current_seed}.mp4"
                     video_pfad = fname 
-                    audio_pfad = "final_mix.wav" 
+                    audio_pfad = "final_mix.wav"
                     if os.path.exists(audio_pfad):
                         print(f"Welds {video_pfad} and {audio_pfad} together...")
                         cmd = ["ffmpeg", "-y", "-i", video_pfad, "-i", audio_pfad, "-c:v", "copy", "-c:a", "aac", "-map", "0:v:0", "-map", "1:a:0", "-shortest", final_music_video]
@@ -317,7 +316,6 @@ class ImageGenGUI:
                         print(f"BOOM! Music video finished: {final_music_video}")
                     else:
                         print(f"ERROR: '{audio_pfad}' Not found!")
-                        print("Did you forget to mix the beat in the C++ tool?")
                 else:
                     print("Silent video saved. (No audio requested)")
                 self.mit_audio_mixen = False
@@ -328,7 +326,6 @@ class ImageGenGUI:
                 self.stop_rennauto("Gestoppt!", "orange")
         except Exception as e:
             print(f"Abbruch durch echten Fehler: {e}")
-            import traceback
             traceback.print_exc() 
             self.cleanup()
             if hasattr(self, 'stop_rennauto'):
