@@ -178,13 +178,21 @@ class ImageGenGUI:
                 torch_dtype=torch.float16 
             )
             self.pipe.vae.to(dtype=torch.float32)
-            original_decode = self.pipe.vae.decode
-            def safe_decode(z, *args, **kwargs):
-                return original_decode(z.to(dtype=torch.float32), *args, **kwargs)
-            self.pipe.vae.decode = safe_decode
+            original_encode = self.pipe.vae.encode
+            def safe_encode(x, *args, **kwargs):
+                # 1. Das Bild für den VAE auf 32-Bit hochziehen
+                res = original_encode(x.to(dtype=torch.float32), *args, **kwargs)
+                # 2. Die generierten Latents für das UNet wieder auf 16-Bit drosseln
+                orig_sample = res.latent_dist.sample
+                res.latent_dist.sample = lambda *a, **kw: orig_sample(*a, **kw).to(dtype=torch.float16)
+                return res
+            self.pipe.vae.encode = safe_encode
+            # --- LoRA LADEN ---
             if self.lora_path.get():
                 self.pipe.load_lora_weights(self.lora_path.get())
                 self.pipe.fuse_lora(lora_scale=0.4)
+                # SICHERHEITS-CAST: Falls das LoRA heimlich 32-Bit Reste hinterlassen hat!
+                self.pipe.unet.to(dtype=torch.float16)
             guidance = self.apply_turbo_logic(self.pipe)
             self.pipe.enable_model_cpu_offload() 
             self.pipe.vae.enable_slicing()
@@ -250,7 +258,7 @@ class ImageGenGUI:
         try:
             start_t = time.time()
             self.status_label.config(text="Video wird generiert...", fg="orange")
-            te_p = self.text_encoder_path.get() or "runwayml/stable-diffusion-v1-5"
+            #te_p = self.text_encoder_path.get() or "runwayml/stable-diffusion-v1-5" // <---- experimentel
             ma_p = self.motion_adapter_path.get()
             self.adapter = MotionAdapter.from_pretrained(ma_p, torch_dtype=torch.float16)
             self.text_encoder = CLIPTextModel.from_pretrained(
