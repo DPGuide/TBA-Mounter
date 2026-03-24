@@ -5,6 +5,9 @@ import torch
 import ctypes
 import sys
 import os
+import imageio
+import imageio_ffmpeg
+from diffusers.utils import export_to_video
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 import time
 import random 
@@ -212,7 +215,7 @@ class ImageGenGUI:
             print("LCM turbo detected! Switch scheduler...")
             pipe.scheduler = LCMScheduler.from_config(pipe.scheduler.config)
             return 1.0 
-        return 5 
+        return 9 
 
     # --- GENERIERUNG BILD ---
     def start_gen_img(self):
@@ -392,7 +395,7 @@ class ImageGenGUI:
                 )
 
                 fname = f"out_vid_{int(time.time())}_seed{seed}.{fmt}"
-                if fmt == "mp4": export_to_video(output.frames[0], fname, fps=8)
+                if fmt == "mp4": export_to_video(output.frames[0], fname, fps=14)
                 else: export_to_gif(output.frames[0], fname)
 
             self.cleanup()
