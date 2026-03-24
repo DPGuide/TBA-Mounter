@@ -79,7 +79,8 @@ class ImageGenGUI:
         ping_pong_pos = self.car_pos % (self.track_length * 2)
         if ping_pong_pos >= self.track_length:
             actual_pos = (self.track_length * 2) - 1 - ping_pong_pos
-            car = "🏎️"
+            car = "🏎️" 
+        else:
             actual_pos = ping_pong_pos
             car = "🏎️"
         track[actual_pos] = car
@@ -294,7 +295,7 @@ class ImageGenGUI:
                 )
                 fname = f"out_vid_{int(time.time())}_seed{current_seed}.{fmt}"
                 if fmt == "mp4": 
-                    export_to_video(output.frames[0], fname, fps=128)
+                    export_to_video(output.frames[0], fname, fps=256)
                 else: 
                     export_to_gif(output.frames[0], fname)
                 self.cleanup()
