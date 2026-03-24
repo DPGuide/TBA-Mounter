@@ -1,4 +1,4 @@
-# import tkinter as tk
+import tkinter as tk
 from tkinter import filedialog, Scale, messagebox
 import threading
 import torch
@@ -326,22 +326,15 @@ class ImageGenGUI:
             self.stop_rennauto("Fehler aufgetreten!")
             
         finally:
-            # --- DER WICHTIGSTE TEIL: SPEICHER LEEREN ---
-            print("Räume Speicher auf...")
-            self.cleanup() 
-            
-            import gc
-            import torch
-            
+            print("Führe finale Speicherreinigung durch...")
             if hasattr(self, 'pipe'):
-                del self.pipe 
-            
-            gc.collect()
+                del self.pipe
+            gc.collect() 
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
                 torch.cuda.ipc_collect()
-            
-            print("Speicher erfolgreich freigegeben!")
+                
+            print("RAM und VRAM erfolgreich freigegeben!")
     
     def start_video_mit_audio(self):
         # Merken: Wir wollen Audio!
@@ -493,10 +486,7 @@ class ImageGenGUI:
         finally:
             print("Führe finale Speicherreinigung durch...")
             if hasattr(self, 'pipe'):
-                del self.pipe # Löscht das KI-Modell restlos aus dem Skript
-                
-            import gc
-            import torch
+                del self.pipe
             gc.collect() 
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
