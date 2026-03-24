@@ -52,9 +52,9 @@ class ImageGenGUI:
         self.input_image_path = tk.StringVar()
         self.text_encoder_path = tk.StringVar(value="Z:\\Models\\text_encoder_lokal")
         self.motion_adapter_path = tk.StringVar(value="Z:\\Models\\motion_adapter_lokal")
-
-        self.prompt = tk.StringVar(value="beuty women")
-        self.neg_prompt = tk.StringVar(value="")
+ 
+        self.prompt = tk.StringVar(value="smooth, seamless motion transitions, super good sharped detailed focus view, highly cinematic detailed")
+        self.neg_prompt = tk.StringVar(value="bad smooth motion transitions, bad focus, bad detailed, no haze, six fingers, ugly, deformed, blured, unsharp text, watermark")
         
         self.seed_var = tk.StringVar(value="-1") 
         
@@ -71,7 +71,7 @@ class ImageGenGUI:
             torch.cuda.empty_cache()
             torch.cuda.ipc_collect()
         
-    def start_rennauto(self, basis_text="Generierung startet..."):
+    def start_rennauto(self, basis_text="Generation starts..."):
         self.is_racing = True
         self.car_pos = 0
         self.track_length = 20
@@ -103,7 +103,7 @@ class ImageGenGUI:
         # In 150 Millisekunden das nächste Bild aufrufen
         self.status_label.after(150, self.animate_rennauto)
         
-    def stop_rennauto(self, end_text="Fertig!", color="#2ecc71"):
+    def stop_rennauto(self, end_text="Done!", color="#2ecc71"):
         self.is_racing = False
         for b in [self.btn_img, self.btn_gif, self.btn_mp4]: 
             b.config(state="normal")
@@ -115,45 +115,45 @@ class ImageGenGUI:
         tk.Label(self.root, text="STABLE DIFFUSION - MOUNTER CONTROL", fg="white", bg="#1e1e1e", font=("Arial", 14, "bold")).pack(pady=10)
 
         # Auswahl-Sektion
-        self.add_file_selector("1. Basis-Modell (.safetensors):", self.model_path, self.browse_model)
+        self.add_file_selector("1. Basic model (.safetensors):", self.model_path, self.browse_model)
         self.add_file_selector("2. LoRA / LCM-Turbo LoRA:", self.lora_path, self.browse_lora)
-        self.add_file_selector("3. Vorlagen-Bild (Optional für Img2Img):", self.input_image_path, self.browse_input_image)
+        self.add_file_selector("3. Template image (Optional for Img2Img):", self.input_image_path, self.browse_input_image)
         
-        tk.Label(self.root, text="--- Offline Mounter Pfade ---", fg="#888", bg="#1e1e1e", font=("Arial", 8, "italic")).pack(pady=(15,0))
-        self.add_file_selector("A. Text-Encoder Ordner:", self.text_encoder_path, self.browse_text_encoder)
-        self.add_file_selector("B. Motion-Adapter Ordner:", self.motion_adapter_path, self.browse_motion_adapter)
+        tk.Label(self.root, text="--- Offline Mounter Paths ---", fg="#888", bg="#1e1e1e", font=("Arial", 8, "italic")).pack(pady=(15,0))
+        self.add_file_selector("A. Text encoder folder:", self.text_encoder_path, self.browse_text_encoder)
+        self.add_file_selector("B. Motion adapter folder:", self.motion_adapter_path, self.browse_motion_adapter)
 
         # Prompts & Seed
-        self.add_text_entry("Prompt (Was soll zu sehen sein?):", self.prompt, 15)
-        self.add_text_entry("Negative Prompt (Was soll NICHT zu sehen sein?):", self.neg_prompt, 5)
-        self.add_text_entry("Seed (-1 für reinen Zufall):", self.seed_var, 5) 
+        self.add_text_entry("Prompt (What should be shown?)):", self.prompt, 15)
+        self.add_text_entry("Negative Prompt (What should NOT be visible?)):", self.neg_prompt, 5)
+        self.add_text_entry("Seed (-1 for pure randomness):", self.seed_var, 5) 
 
         # Regler Sektion
         slider_frame = tk.Frame(self.root, bg="#1e1e1e")
         slider_frame.pack(fill="x", padx=20, pady=20)
         
         # Steps
-        tk.Label(slider_frame, text="Schritte:", fg="white", bg="#1e1e1e", font=("Arial", 8, "bold")).grid(row=0, column=0, sticky="w")
-        self.slider_steps = Scale(slider_frame, from_=1, to=50, orient="horizontal", bg="#1e1e1e", fg="white", highlightthickness=0); self.slider_steps.set(20); self.slider_steps.grid(row=1, column=0, padx=5, sticky="we")
+        tk.Label(slider_frame, text="Steps:", fg="white", bg="#1e1e1e", font=("Arial", 10, "bold")).grid(row=0, column=0, sticky="w")
+        self.slider_steps = Scale(slider_frame, from_=1, to=50, orient="horizontal", bg="#1e1e1e", fg="white", highlightthickness=0); self.slider_steps.set(14); self.slider_steps.grid(row=1, column=0, padx=5, sticky="we")
         
         # Breite
-        tk.Label(slider_frame, text="Breite:", fg="white", bg="#1e1e1e", font=("Arial", 8, "bold")).grid(row=0, column=1, sticky="w")
-        self.slider_width = Scale(slider_frame, from_=256, to=1280, orient="horizontal", resolution=64, bg="#1e1e1e", fg="white", highlightthickness=0); self.slider_width.set(512); self.slider_width.grid(row=1, column=1, padx=5, sticky="we")
+        tk.Label(slider_frame, text="Width:", fg="white", bg="#1e1e1e", font=("Arial", 10, "bold")).grid(row=0, column=1, sticky="w")
+        self.slider_width = Scale(slider_frame, from_=256, to=1280, orient="horizontal", resolution=64, bg="#1e1e1e", fg="white", highlightthickness=0); self.slider_width.set(640); self.slider_width.grid(row=1, column=1, padx=5, sticky="we")
         
         # Höhe
-        tk.Label(slider_frame, text="Höhe:", fg="white", bg="#1e1e1e", font=("Arial", 8, "bold")).grid(row=0, column=2, sticky="w")
+        tk.Label(slider_frame, text="Height:", fg="white", bg="#1e1e1e", font=("Arial", 10, "bold")).grid(row=0, column=2, sticky="w")
         self.slider_height = Scale(slider_frame, from_=256, to=768, orient="horizontal", resolution=64, bg="#1e1e1e", fg="white", highlightthickness=0); self.slider_height.set(512); self.slider_height.grid(row=1, column=2, padx=5, sticky="we")
         
         # Frames (Video)
-        tk.Label(slider_frame, text="Video-Frames:", fg="white", bg="#1e1e1e", font=("Arial", 8, "bold")).grid(row=0, column=3, sticky="w")
-        self.slider_frames = Scale(slider_frame, from_=4, to=32, orient="horizontal", bg="#1e1e1e", fg="white", highlightthickness=0); self.slider_frames.set(16); self.slider_frames.grid(row=1, column=3, padx=5, sticky="we")
+        tk.Label(slider_frame, text="Video frames:", fg="white", bg="#1e1e1e", font=("Arial", 10, "bold")).grid(row=0, column=3, sticky="w")
+        self.slider_frames = Scale(slider_frame, from_=4, to=32, orient="horizontal", bg="#1e1e1e", fg="white", highlightthickness=0); self.slider_frames.set(14); self.slider_frames.grid(row=1, column=3, padx=5, sticky="we")
         
         # Strength (Img2Img)
-        tk.Label(slider_frame, text="Img2Img Stärke:", fg="white", bg="#1e1e1e", font=("Arial", 8, "bold")).grid(row=0, column=4, sticky="w")
+        tk.Label(slider_frame, text="Img2Img Strength:", fg="white", bg="#1e1e1e", font=("Arial", 10, "bold")).grid(row=0, column=4, sticky="w")
         self.slider_strength = Scale(slider_frame, from_=0.1, to=1.0, orient="horizontal", resolution=0.05, bg="#1e1e1e", fg="white", highlightthickness=0); self.slider_strength.set(0.75); self.slider_strength.grid(row=1, column=4, padx=5, sticky="we")
         
         # Anzahl Bilder/Videos (Batch Count)
-        tk.Label(slider_frame, text="Anzahl:", fg="#2ecc71", bg="#1e1e1e", font=("Arial", 8, "bold")).grid(row=0, column=5, sticky="w")
+        tk.Label(slider_frame, text="Number:", fg="#2ecc71", bg="#1e1e1e", font=("Arial", 10, "bold")).grid(row=0, column=5, sticky="w")
         self.slider_batch = Scale(slider_frame, from_=1, to=100, orient="horizontal", bg="#1e1e1e", fg="#2ecc71", highlightthickness=0); self.slider_batch.set(1); self.slider_batch.grid(row=1, column=5, padx=5, sticky="we")
 
         slider_frame.columnconfigure((0,1,2,3,4,5), weight=1)
@@ -162,31 +162,21 @@ class ImageGenGUI:
         btn_frame = tk.Frame(self.root, bg="#1e1e1e")
         btn_frame.pack(fill="x", padx=20, pady=20)
 
-        self.btn_img = tk.Button(btn_frame, text="BILD GENERIEREN", bg="#2ecc71", fg="white", font=("Arial", 11, "bold"), command=self.start_gen_img)
+        self.btn_img = tk.Button(btn_frame, text="GENERATE IMAGE", bg="#2ecc71", fg="white", font=("Arial", 11, "bold"), command=self.start_gen_img)
         self.btn_img.pack(side="left", expand=True, fill="x", padx=5)
 
         self.btn_gif = tk.Button(btn_frame, text="GIF GENERIEREN", bg="#e91e63", fg="white", font=("Arial", 11, "bold"), command=lambda: self.start_gen_vid("gif"))
         self.btn_gif.pack(side="left", expand=True, fill="x", padx=5)
 
-        self.btn_mp4 = tk.Button(btn_frame, text="MP4 GENERIEREN", bg="#3498db", fg="white", font=("Arial", 11, "bold"), command=lambda: self.start_gen_vid("mp4"))
+        self.btn_mp4 = tk.Button(btn_frame, text="GENERATE MP4", bg="#3498db", fg="white", font=("Arial", 11, "bold"), command=lambda: self.start_gen_vid("mp4"))
         self.btn_mp4.pack(side="left", expand=True, fill="x", padx=5)
 
         # Status
-        self.status_label = tk.Label(self.root, text="Bereit. (Tipp: Steps < 10 aktiviert automatisch Turbo-LCM)", fg="#2ecc71", bg="#1e1e1e", font=("Arial", 10))
+        self.status_label = tk.Label(self.root, text="Ready. (Tip: Steps < 10 automatically activate Turbo-LCM)", fg="#2ecc71", bg="#1e1e1e", font=("Arial", 10))
         self.status_label.pack(pady=10)
-        
-        # Status
-        self.status_label = tk.Label(self.root, text="Bereit. (Tipp: Steps < 10 aktiviert automatisch Turbo-LCM)", fg="#2ecc71", bg="#1e1e1e", font=("Arial", 10))
-        self.status_label.pack(pady=10)
-
-        # --- DAS NEUE AUDIO-FELD (Richtiger Platz!) ---
-        tk.Label(self.root, text="Audio/Beat Prompt (Für Musikvideos):", fg="#a832a8", bg="#1e1e1e", font=("Arial", 9, "bold")).pack(anchor="w", padx=20, pady=(10, 0))
-        self.audio_prompt_entry = tk.Entry(self.root, bg="#2d2d2d", fg="white", insertbackground="white", borderwidth=0)
-        self.audio_prompt_entry.insert(0, "Aggressive modern trap beat, 120 bpm")
-        self.audio_prompt_entry.pack(fill="x", padx=20, ipady=4, pady=(0, 10))
 
         # --- DER NEUE LUXUS-BUTTON ---
-        self.btn_mp4_audio = tk.Button(self.root, text="MP4 + AUDIO GENERIEREN", bg="purple", fg="white", font=("Arial", 11, "bold"), command=self.start_video_mit_audio)
+        self.btn_mp4_audio = tk.Button(self.root, text="GENERATE MP4 + AUDIO", bg="purple", fg="white", font=("Arial", 11, "bold"), command=self.start_video_mit_audio)
         self.btn_mp4_audio.pack(fill="x", padx=20, pady=5)
 
     # --- HELPER UI ---
@@ -194,7 +184,7 @@ class ImageGenGUI:
         tk.Label(self.root, text=txt, fg="white", bg="#1e1e1e", font=("Arial", 9, "bold")).pack(anchor="w", padx=20, pady=(10, 0))
         f = tk.Frame(self.root, bg="#1e1e1e"); f.pack(fill="x", padx=20)
         tk.Entry(f, textvariable=var, bg="#2d2d2d", fg="white", insertbackground="white", borderwidth=0).pack(side="left", expand=True, fill="x", ipady=4, padx=(0, 5))
-        tk.Button(f, text="Durchsuchen", command=cmd, bg="#444", fg="white", relief="flat", padx=10).pack(side="left")
+        tk.Button(f, text="Browse", command=cmd, bg="#444", fg="white", relief="flat", padx=10).pack(side="left")
 
     def add_text_entry(self, txt, var, p):
         tk.Label(self.root, text=txt, fg="white", bg="#1e1e1e", font=("Arial", 9, "bold")).pack(anchor="w", padx=20, pady=(p, 0))
@@ -210,7 +200,7 @@ class ImageGenGUI:
     # --- LOGIK ---
     def set_busy(self, is_video=False):
         for b in [self.btn_img, self.btn_gif, self.btn_mp4]: b.config(state="disabled")
-        t = "Video-Turbo wird berechnet..." if self.slider_steps.get() < 10 and is_video else "Generierung startet..."
+        t = "Video Turbo is being calculated..." if self.slider_steps.get() < 10 and is_video else "Generation starts..."
         self.status_label.config(text=t, fg="orange")
 
     def reset_status(self, msg):
@@ -219,10 +209,10 @@ class ImageGenGUI:
 
     def apply_turbo_logic(self, pipe):
         if self.slider_steps.get() < 10:
-            print("LCM-Turbo erkannt! Schalte Scheduler um...")
+            print("LCM turbo detected! Switch scheduler...")
             pipe.scheduler = LCMScheduler.from_config(pipe.scheduler.config)
-            return 1.5 
-        return 7.5 
+            return 1.0 
+        return 5 
 
     # --- GENERIERUNG BILD ---
     def start_gen_img(self):
@@ -235,7 +225,7 @@ class ImageGenGUI:
         try:
             start_t = time.time()
             te_p = self.text_encoder_path.get() or "runwayml/stable-diffusion-v1-5"
-            self.status_label.config(text="Lade sauberes Bild-Tuning...", fg="orange")
+            self.status_label.config(text="Download clean image tuning...", fg="orange")
             
             # ALLES IN 16-BIT (Verhindert Half != float Clashes!)
             self.text_encoder = CLIPTextModel.from_pretrained(te_p, torch_dtype=torch.float16, low_cpu_mem_usage=False, **({"subfolder":"text_encoder"} if "runwayml" in te_p else {}))
@@ -258,23 +248,30 @@ class ImageGenGUI:
 
             if self.lora_path.get():
                 self.pipe.load_lora_weights(self.lora_path.get())
-                self.pipe.fuse_lora(lora_scale=0.8)
+                self.pipe.fuse_lora(lora_scale=0.4)
 
             guidance = self.apply_turbo_logic(self.pipe)
             
             # VRAM-Management
             self.pipe.enable_model_cpu_offload() 
             self.pipe.vae.enable_slicing()
-            self.pipe.vae.enable_tiling()
+            # self.pipe.vae.enable_tiling()
             
             batch_count = self.slider_batch.get()
             try:
                 base_seed = int(self.seed_var.get())
+                # Wenn der Regler auf -1 steht (oder eingetippt wurde), 
+                # zwingen wir ihn hart auf die 1!
+                if base_seed == -1:
+                    base_seed = 1
             except ValueError:
-                base_seed = -1 
+                # Wenn das Feld leer ist oder Buchstaben drinstehen -> auch Seed 1
+                base_seed = 1 
 
             for i in range(batch_count):
-                current_seed = base_seed + i if base_seed != -1 else random.randint(0, 2147483647)
+                # Er rechnet jetzt einfach: 1 + 0 = 1, 1 + 1 = 2, usw.
+                current_seed = base_seed + i 
+                
                 device = "cuda" if torch.cuda.is_available() else "cpu"
                 generator = torch.Generator(device=device).manual_seed(current_seed)
 
@@ -295,7 +292,7 @@ class ImageGenGUI:
                 fname = f"out_img_{int(time.time())}_seed{current_seed}.png"
                 output.save(fname)
 
-            self.stop_rennauto(f"Ziel erreicht! {batch_count} Bild(er) gespeichert in {time.time()-start_t:.1f}s.")
+            self.stop_rennauto(f"Goal achieved! {batch_count} Image(s) saved in {time.time()-start_t:.1f}s.")
             self.cleanup() 
             
         except Exception as e:
@@ -366,8 +363,19 @@ class ImageGenGUI:
             self.pipe.enable_attention_slicing(1)
 
             batch_count = self.slider_batch.get()
+            
+            # 1. Den Start-Seed sicher aus der GUI holen
+            try:
+                start_val = int(self.seed_var.get())
+                if start_val == -1: 
+                    start_val = 1 # Aus Zufall (-1) wird stur die 1
+            except ValueError:
+                start_val = 1 # Falls das Feld leer ist
+                
+            # 2. Die Video-Schleife
             for i in range(batch_count):
-                seed = random.randint(0, 10**9) if int(self.seed_var.get()) == -1 else int(self.seed_var.get()) + i
+                # Wir nennen es zwingend "seed", damit dein Dateiname unten funktioniert!
+                seed = start_val + i 
                 generator = torch.Generator(device="cuda").manual_seed(seed)
 
                 self.start_rennauto(f"Video {i+1}/{batch_count} wird gerendert...")
@@ -388,36 +396,34 @@ class ImageGenGUI:
                 else: export_to_gif(output.frames[0], fname)
 
             self.cleanup()
-            self.stop_rennauto(f"Ziel erreicht! Video(s) gespeichert in {time.time()-start_t:.1f}s.")
+            self.stop_rennauto(f"Goal achieved! Video(s) saved in {time.time()-start_t:.1f}s.")
             
-            # --- DIE AUDIO-WEICHE ---
+            # --- DIE AUDIO-WEICHE (NUR NOCH MUXER) ---
             if getattr(self, 'mit_audio_mixen', False):
+                
                 # --- PHASE 1: VRAM LEEREN ---
-                print("Spüle den VRAM für das Audio-Modell...")
+                print("Cleared the VRAM after the video...")
                 if hasattr(self, 'pipe'): del self.pipe 
                 torch.cuda.empty_cache() 
-                import gc; gc.collect() 
+                gc.collect()
                 
-                # --- PHASE 2: BEAT GENERIEREN ---
-                print("Starte Audio-Motor (MusicGen)...")
-                import subprocess
+                # --- PHASE 2: FFMPEG MUXING ---
+                # <--- import subprocess und import os weggelassen!
                 
-                # Holt den Text frisch aus deinem neuen Tkinter-Feld!
-                aktueller_beat_prompt = self.audio_prompt_entry.get() 
-                
-                subprocess.run(["python", "beats/beat_generator.py", "--prompt", aktueller_beat_prompt, "--duration", "10", "--output", "temp_beat.wav"])
-                
-                # --- PHASE 3: FFmpeg MUXING ---
                 final_music_video = f"MIX_vid_{int(time.time())}_seed{seed}.mp4"
                 video_pfad = fname 
-                audio_pfad = "temp_beat.wav"
+                audio_pfad = "final_mix.wav" 
                 
-                print(f"Schweiße {video_pfad} und {audio_pfad} zusammen...")
-                cmd = ["ffmpeg", "-y", "-i", video_pfad, "-i", audio_pfad, "-c:v", "copy", "-c:a", "aac", "-map", "0:v:0", "-map", "1:a:0", "-shortest", final_music_video]
-                subprocess.run(cmd)
-                print(f"BÄM! Musikvideo fertig: {final_music_video}")
+                if os.path.exists(audio_pfad):
+                    print(f"Welds {video_pfad} and {audio_pfad} together...")
+                    cmd = ["ffmpeg", "-y", "-i", video_pfad, "-i", audio_pfad, "-c:v", "copy", "-c:a", "aac", "-map", "0:v:0", "-map", "1:a:0", "-shortest", final_music_video]
+                    subprocess.run(cmd)
+                    print(f"BOOM! Music video finished: {final_music_video}")
+                else:
+                    print(f"ERROR: '{audio_pfad}' Not found!")
+                    print("Did you forget to mix the beat in the C++ tool?")
             else:
-                print("Stummes Video gespeichert. (Kein Audio angefordert)")
+                print("Silent video saved. (No audio requested)")
 
         except Exception as e:
             print(f"Abbruch: {e}")
@@ -425,7 +431,7 @@ class ImageGenGUI:
             traceback.print_exc() 
             self.cleanup()
             if hasattr(self, 'stop_rennauto'):
-                self.stop_rennauto("Fehler!", "red")
+                self.stop_rennauto("Error!", "red")
 
 # --- START ---
 if __name__ == "__main__":
