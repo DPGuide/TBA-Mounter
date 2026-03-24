@@ -258,13 +258,13 @@ class ImageGenGUI:
         try:
             start_t = time.time()
             self.status_label.config(text="Video wird generiert...", fg="orange")
-            #te_p = self.text_encoder_path.get() or "runwayml/stable-diffusion-v1-5" // <---- experimentel
+            te_p = self.text_encoder_path.get() or "runwayml/stable-diffusion-v1-5"
             ma_p = self.motion_adapter_path.get()
             self.adapter = MotionAdapter.from_pretrained(ma_p, torch_dtype=torch.float16)
+            self.status_label.config(text="Lade Text-Encoder...", fg="orange")
             self.text_encoder = CLIPTextModel.from_pretrained(
                 te_p, 
-                torch_dtype=torch.float16, 
-                **({"subfolder": "text_encoder"} if "runwayml" in te_p else {})
+                torch_dtype=torch.float16
             )
             self.pipe = AnimateDiffPipeline.from_single_file(
                 self.model_path.get(), 
