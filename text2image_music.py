@@ -298,18 +298,18 @@ class ImageGenGUI:
                     export_to_video(output.frames[0], fname, fps=256)
                 else: 
                     export_to_gif(output.frames[0], fname)
-                self.cleanup()
+                import gc, torch
+                gc.collect()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+
                 self.stop_rennauto(f"Goal achieved! Video(s) saved in {time.time()-start_t:.1f}s.")
                 if getattr(self, 'mit_audio_mixen', False):
-                    if hasattr(self, 'pipe'): 
-                        del self.pipe 
-                        torch.cuda.empty_cache() 
-                        gc.collect()
-                        print("Cleared the VRAM before audio mixing...")
+                    print("Bereite Audio-Muxing vor...")
                     import os, subprocess 
                     final_music_video = f"MIX_vid_{int(time.time())}_seed{current_seed}.mp4"
                     video_pfad = fname 
-                    audio_pfad = "final_mix.wav"
+                    audio_pfad = "final_mix.wav" 
                     if os.path.exists(audio_pfad):
                         print(f"Welds {video_pfad} and {audio_pfad} together...")
                         cmd = ["ffmpeg", "-y", "-i", video_pfad, "-i", audio_pfad, "-c:v", "copy", "-c:a", "aac", "-map", "0:v:0", "-map", "1:a:0", "-shortest", final_music_video]
