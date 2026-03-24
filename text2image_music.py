@@ -1,4 +1,4 @@
-import tkinter as tk
+# import tkinter as tk
 from tkinter import filedialog, Scale, messagebox
 import threading
 import torch
@@ -12,8 +12,11 @@ os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 import time
 import random 
 from PIL import Image as PILImage
-import gc  # Garbage Collector
+import gc
 import subprocess
+
+class StopGenerationException(Exception):
+    pass
 
 print("!!! GRAFIKKARTEN-TEST: ", torch.cuda.is_available(), " !!!")
 print("Ist CUDA aktiv?", torch.cuda.is_available())
@@ -62,6 +65,9 @@ class ImageGenGUI:
         self.seed_var = tk.StringVar(value="-1") 
         
         self.setup_ui()
+    
+        # Standardmäßig ist kein Stop gewünscht
+        self.stop_requested = False
 
     def cleanup(self):
         """Leert den Speicher, um VRAM-Abstürze bei 6GB Karten zu verhindern."""
@@ -73,6 +79,14 @@ class ImageGenGUI:
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
             torch.cuda.ipc_collect()
+    
+    def stop_generation(self):
+        # Legt den Schalter um
+        self.stop_requested = True
+        print("Stop angefordert! Aktueller Prozess wird noch beendet...")
+        # Optional: Status in der GUI aktualisieren
+        if hasattr(self, 'status_label'):
+            self.status_label.config(text="Abbruch angefordert...", fg="red")
         
     def start_rennauto(self, basis_text="Generation starts..."):
         self.is_racing = True
@@ -108,7 +122,7 @@ class ImageGenGUI:
         
     def stop_rennauto(self, end_text="Done!", color="#2ecc71"):
         self.is_racing = False
-        for b in [self.btn_img, self.btn_gif, self.btn_mp4]: 
+        for b in [self.btn_img, self.btn_gif, self.btn_mp4, self.btn_mp4_audio]: 
             b.config(state="normal")
         
         self.status_label.config(text=end_text, fg=color)
@@ -173,12 +187,16 @@ class ImageGenGUI:
 
         self.btn_mp4 = tk.Button(btn_frame, text="GENERATE MP4", bg="#3498db", fg="white", font=("Arial", 11, "bold"), command=lambda: self.start_gen_vid("mp4"))
         self.btn_mp4.pack(side="left", expand=True, fill="x", padx=5)
+        
+        # --- DER NEUE STOP BUTTON ---
+        self.btn_stop = tk.Button(btn_frame, text="STOP", bg="#e74c3c", fg="white", font=("Arial", 11, "bold"), command=self.stop_generation)
+        self.btn_stop.pack(side="left", expand=True, fill="x", padx=5)
 
         # Status
         self.status_label = tk.Label(self.root, text="Ready. (Tip: Steps < 10 automatically activate Turbo-LCM)", fg="#2ecc71", bg="#1e1e1e", font=("Arial", 10))
         self.status_label.pack(pady=10)
 
-        # --- DER NEUE LUXUS-BUTTON ---
+        # --- DER LUXUS-BUTTON ---
         self.btn_mp4_audio = tk.Button(self.root, text="GENERATE MP4 + AUDIO", bg="purple", fg="white", font=("Arial", 11, "bold"), command=self.start_video_mit_audio)
         self.btn_mp4_audio.pack(fill="x", padx=20, pady=5)
 
@@ -202,12 +220,12 @@ class ImageGenGUI:
 
     # --- LOGIK ---
     def set_busy(self, is_video=False):
-        for b in [self.btn_img, self.btn_gif, self.btn_mp4]: b.config(state="disabled")
+        for b in [self.btn_img, self.btn_gif, self.btn_mp4, self.btn_mp4_audio]: b.config(state="disabled")
         t = "Video Turbo is being calculated..." if self.slider_steps.get() < 10 and is_video else "Generation starts..."
         self.status_label.config(text=t, fg="orange")
 
     def reset_status(self, msg):
-        for b in [self.btn_img, self.btn_gif, self.btn_mp4]: b.config(state="normal")
+        for b in [self.btn_img, self.btn_gif, self.btn_mp4, self.btn_mp4_audio]: b.config(state="normal")
         self.status_label.config(text=msg, fg="#2ecc71")
 
     def apply_turbo_logic(self, pipe):
@@ -219,10 +237,11 @@ class ImageGenGUI:
 
     # --- GENERIERUNG BILD ---
     def start_gen_img(self):
+        # 1. Stop-Schalter bei jedem neuen Start zurücksetzen
+        self.stop_requested = False 
         self.set_busy()
         threading.Thread(target=self.gen_img_thread, daemon=True).start()
 
-    # --- GENERIERUNG BILD (Der funktionierende Original-Zustand + VAE Brücke) ---
     def gen_img_thread(self):
         self.cleanup() 
         try:
@@ -258,23 +277,24 @@ class ImageGenGUI:
             # VRAM-Management
             self.pipe.enable_model_cpu_offload() 
             self.pipe.vae.enable_slicing()
-            # self.pipe.vae.enable_tiling()
             
             batch_count = self.slider_batch.get()
             try:
                 base_seed = int(self.seed_var.get())
-                # Wenn der Regler auf -1 steht (oder eingetippt wurde), 
-                # zwingen wir ihn hart auf die 1!
                 if base_seed == -1:
                     base_seed = 1
             except ValueError:
-                # Wenn das Feld leer ist oder Buchstaben drinstehen -> auch Seed 1
                 base_seed = 1 
 
+            # --- DIE SCHLEIFE FÜR DIE BILDER ---
             for i in range(batch_count):
-                # Er rechnet jetzt einfach: 1 + 0 = 1, 1 + 1 = 2, usw.
-                current_seed = base_seed + i 
                 
+                # CHECK: Wurde der Stop-Button gedrückt?
+                if self.stop_requested:
+                    print(f"Abbruch! Stoppe nach {i} von {batch_count} Bildern.")
+                    break # Beendet die for-Schleife sofort
+                
+                current_seed = base_seed + i 
                 device = "cuda" if torch.cuda.is_available() else "cpu"
                 generator = torch.Generator(device=device).manual_seed(current_seed)
 
@@ -295,46 +315,66 @@ class ImageGenGUI:
                 fname = f"out_img_{int(time.time())}_seed{current_seed}.png"
                 output.save(fname)
 
-            self.stop_rennauto(f"Goal achieved! {batch_count} Image(s) saved in {time.time()-start_t:.1f}s.")
-            self.cleanup() 
+            # Nach der Schleife: Erfolgsmeldung oder Abbruchmeldung
+            if self.stop_requested:
+                self.stop_rennauto(f"Abgebrochen! {i} Bild(er) gespeichert.")
+            else:
+                self.stop_rennauto(f"Goal achieved! {batch_count} Image(s) saved in {time.time()-start_t:.1f}s.")
             
         except Exception as e:
-            print(f"Abbruch: {e}")
+            print(f"Fehler bei der Generierung: {e}")
+            self.stop_rennauto("Fehler aufgetreten!")
+            
+        finally:
+            # --- DER WICHTIGSTE TEIL: SPEICHER LEEREN ---
+            print("Räume Speicher auf...")
             self.cleanup() 
-            if hasattr(self, 'stop_rennauto'):
-                self.stop_rennauto("Fehler!", "red")
+            
+            import gc
+            import torch
+            
+            if hasattr(self, 'pipe'):
+                del self.pipe 
+            
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.ipc_collect()
+            
+            print("Speicher erfolgreich freigegeben!")
     
     def start_video_mit_audio(self):
         # Merken: Wir wollen Audio!
         self.mit_audio_mixen = True 
-        self.start_gen_vid("mp4") # <--- Hier war der Namens-Fehler!
+        self.start_gen_vid("mp4") 
                 
     # --- START GENERIERUNG VIDEO ---
     def start_gen_vid(self, fmt):
-        self.mit_audio_mixen = False # WICHTIG: Resettet den Schalter bei normalem Klick!
+        if not hasattr(self, 'mit_audio_mixen') or self.mit_audio_mixen != True:
+            self.mit_audio_mixen = False # WICHTIG: Resettet den Schalter bei normalem Klick!
         self.set_busy(True)
         threading.Thread(target=self.gen_vid_thread, args=(fmt,), daemon=True).start()
 
     # --- GENERIERUNG VIDEO (Pure Stabilität ohne verrückte Hacks) ---
     def gen_vid_thread(self, fmt):
         self.cleanup()
+        self.stop_requested = False # Schalter zurücksetzen
+        
+        # --- DER SPION (CALLBACK) ---
+        def step_callback(pipe, step_index, timestep, callback_kwargs):
+            if self.stop_requested:
+                print(f"Notbremse bei Step {step_index} gezogen!")
+                raise StopGenerationException("User pressed stop!")
+            return callback_kwargs
+
         try:
             start_t = time.time()
+            self.status_label.config(text="Video wird generiert...", fg="orange")
+            
+            # --- FEHLENDE VARIABLEN GEFIXT ---
+            te_p = self.text_encoder_path.get() or "runwayml/stable-diffusion-v1-5"
             ma_p = self.motion_adapter_path.get()
-            if not ma_p or ma_p.strip() == "":
-                ma_p = "guoyww/animatediff-motion-adapter-v1-5-2"
-                print("Ziehe Motion-Adapter frisch aus dem Netz...")
-                
-            te_p = self.text_encoder_path.get()
-            if not te_p or te_p.strip() == "":
-                te_p = "runwayml/stable-diffusion-v1-5"
-                print("Ziehe Text-Encoder frisch aus dem Netz...")
-            
-            if "PYTORCH_CUDA_ALLOC_CONF" in os.environ:
-                del os.environ["PYTORCH_CUDA_ALLOC_CONF"]
 
-            self.status_label.config(text="Lade Video-Modelle (Clean-Track)...", fg="orange")
-            
             # ALLES IN 16-BIT LADEN
             self.adapter = MotionAdapter.from_pretrained(ma_p, torch_dtype=torch.float16)
             self.text_encoder = CLIPTextModel.from_pretrained(
@@ -371,15 +411,15 @@ class ImageGenGUI:
             try:
                 start_val = int(self.seed_var.get())
                 if start_val == -1: 
-                    start_val = 1 # Aus Zufall (-1) wird stur die 1
+                    start_val = 1 
             except ValueError:
-                start_val = 1 # Falls das Feld leer ist
+                start_val = 1 
                 
             # 2. Die Video-Schleife
             for i in range(batch_count):
-                # Wir nennen es zwingend "seed", damit dein Dateiname unten funktioniert!
-                seed = start_val + i 
-                generator = torch.Generator(device="cuda").manual_seed(seed)
+                
+                current_seed = start_val + i 
+                generator = torch.Generator(device="cuda").manual_seed(current_seed)
 
                 self.start_rennauto(f"Video {i+1}/{batch_count} wird gerendert...")
 
@@ -388,53 +428,81 @@ class ImageGenGUI:
                     negative_prompt=self.neg_prompt.get(),
                     num_frames=self.slider_frames.get(),
                     num_inference_steps=self.slider_steps.get(),
+                    callback_on_step_end=step_callback,
                     guidance_scale=guidance,
                     width=self.slider_width.get(),
                     height=self.slider_height.get(),
                     generator=generator
                 )
 
-                fname = f"out_vid_{int(time.time())}_seed{seed}.{fmt}"
-                if fmt == "mp4": export_to_video(output.frames[0], fname, fps=14)
-                else: export_to_gif(output.frames[0], fname)
+                # Wenn wir hier ankommen, lief alles fehlerfrei durch!
+                fname = f"out_vid_{int(time.time())}_seed{current_seed}.{fmt}"
+                if fmt == "mp4": 
+                    export_to_video(output.frames[0], fname, fps=128)
+                else: 
+                    export_to_gif(output.frames[0], fname)
 
-            self.cleanup()
-            self.stop_rennauto(f"Goal achieved! Video(s) saved in {time.time()-start_t:.1f}s.")
-            
-            # --- DIE AUDIO-WEICHE (NUR NOCH MUXER) ---
-            if getattr(self, 'mit_audio_mixen', False):
+                self.cleanup()
+                self.stop_rennauto(f"Goal achieved! Video(s) saved in {time.time()-start_t:.1f}s.")
                 
-                # --- PHASE 1: VRAM LEEREN ---
-                print("Cleared the VRAM after the video...")
-                if hasattr(self, 'pipe'): del self.pipe 
-                torch.cuda.empty_cache() 
-                gc.collect()
-                
-                # --- PHASE 2: FFMPEG MUXING ---
-                # <--- import subprocess und import os weggelassen!
-                
-                final_music_video = f"MIX_vid_{int(time.time())}_seed{seed}.mp4"
-                video_pfad = fname 
-                audio_pfad = "final_mix.wav" 
-                
-                if os.path.exists(audio_pfad):
-                    print(f"Welds {video_pfad} and {audio_pfad} together...")
-                    cmd = ["ffmpeg", "-y", "-i", video_pfad, "-i", audio_pfad, "-c:v", "copy", "-c:a", "aac", "-map", "0:v:0", "-map", "1:a:0", "-shortest", final_music_video]
-                    subprocess.run(cmd)
-                    print(f"BOOM! Music video finished: {final_music_video}")
+                # --- DIE AUDIO-WEICHE (NUR NOCH MUXER) ---
+                if getattr(self, 'mit_audio_mixen', False):
+                    
+                    # Um RAM für FFmpeg freizuschaufeln, werfen wir das Modell schon mal raus
+                    if hasattr(self, 'pipe'): 
+                        del self.pipe 
+                        torch.cuda.empty_cache() 
+                        gc.collect()
+                        print("Cleared the VRAM before audio mixing...")
+                    
+                    import os, subprocess 
+                    final_music_video = f"MIX_vid_{int(time.time())}_seed{current_seed}.mp4"
+                    video_pfad = fname 
+                    audio_pfad = "final_mix.wav" 
+                    
+                    if os.path.exists(audio_pfad):
+                        print(f"Welds {video_pfad} and {audio_pfad} together...")
+                        cmd = ["ffmpeg", "-y", "-i", video_pfad, "-i", audio_pfad, "-c:v", "copy", "-c:a", "aac", "-map", "0:v:0", "-map", "1:a:0", "-shortest", final_music_video]
+                        subprocess.run(cmd)
+                        print(f"BOOM! Music video finished: {final_music_video}")
+                    else:
+                        print(f"ERROR: '{audio_pfad}' Not found!")
+                        print("Did you forget to mix the beat in the C++ tool?")
                 else:
-                    print(f"ERROR: '{audio_pfad}' Not found!")
-                    print("Did you forget to mix the beat in the C++ tool?")
-            else:
-                print("Silent video saved. (No audio requested)")
+                    print("Silent video saved. (No audio requested)")
+                
+                self.mit_audio_mixen = False # Setzt den Status für den nächsten Durchlauf sauber zurück
 
+        # --- HIER FANGEN WIR DEN NORMALEN ABBRUCH AB (KEIN FEHLER) ---
+        except StopGenerationException:
+            print("\n-> Video-Generierung wurde sicher abgebrochen!")
+            self.cleanup()
+            if hasattr(self, 'stop_rennauto'):
+                self.stop_rennauto("Gestoppt!", "orange")
+
+        # --- HIER LANDEN NUR DIE ECHTEN FEHLER (z.B. Out of Memory) ---
         except Exception as e:
-            print(f"Abbruch: {e}")
+            print(f"Abbruch durch echten Fehler: {e}")
             import traceback
             traceback.print_exc() 
             self.cleanup()
             if hasattr(self, 'stop_rennauto'):
                 self.stop_rennauto("Error!", "red")
+
+        # --- DER ABSOLUTE RETTER: WIRD IMMER AUSGEFÜHRT ---
+        finally:
+            print("Führe finale Speicherreinigung durch...")
+            if hasattr(self, 'pipe'):
+                del self.pipe # Löscht das KI-Modell restlos aus dem Skript
+                
+            import gc
+            import torch
+            gc.collect() 
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.ipc_collect()
+                
+            print("RAM und VRAM erfolgreich freigegeben!")
 
 # --- START ---
 if __name__ == "__main__":
