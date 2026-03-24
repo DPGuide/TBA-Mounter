@@ -26,7 +26,7 @@ yeah with seed´s you can create longer videos etc. and start next few sec to ge
 
 ***for import imageio
 import imageio_ffmpeg
-from diffusers.utils import export_to_video be sure you have installed in right folder "C:\Users\.....\AppData\Local\Programs\Python\Python312\python.exe" -m pip install imageio imageio-ffmpeg***
+from diffusers.utils import export_to_video be sure you have installed with CMD right folder command: "C:\Users\.....\AppData\Local\Programs\Python\Python312\python.exe" -m pip install imageio imageio-ffmpeg***
 
 ***pip install xformers***
 
